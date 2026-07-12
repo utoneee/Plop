@@ -16,11 +16,17 @@
     font-family:-apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
   }
   #cv { display:block; touch-action:none; }
-  #ui {
+  #uiWrap {
     position:fixed; top:calc(10px + env(safe-area-inset-top)); right:14px;
-    display:flex; gap:8px; z-index:10;
+    display:flex; flex-direction:column; align-items:flex-end; gap:8px; z-index:10;
   }
-  #ui button {
+  #ui, #ui2 {
+    display:flex; gap:8px;
+    flex-wrap:wrap; justify-content:flex-end; max-width:calc(100vw - 90px);
+  }
+  #ui2 { display:none; }
+  #ui2.open { display:flex; }
+  #uiWrap button {
     appearance:none; border:none; cursor:pointer;
     padding:8px 14px; border-radius:999px;
     background:rgba(255,252,244,0.72); color:#6b5f4e;
@@ -28,8 +34,10 @@
     box-shadow:0 1px 4px rgba(90,72,50,0.14);
     backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
   }
-  #ui button:active { transform:translateY(1px); }
+  #uiWrap button:active { transform:translateY(1px); }
   #clearBtn.arm { background:#c9856f; color:#fff8ef; }
+  #blendBtn.on { background:#9a8ab0; color:#fdfaff; }
+  #lookBtn.on { background:#8a7c66; color:#fdf8ec; }
   #brand {
     position:fixed; top:calc(14px + env(safe-area-inset-top)); left:16px;
     color:rgba(107,95,78,0.5); font-size:13px; letter-spacing:2px; z-index:10;
@@ -48,10 +56,20 @@
 </head>
 <body>
 <div id="brand">Plop</div>
+<div id="uiWrap">
 <div id="ui">
-  <button id="modeBtn">一盤制</button>
+  <button id="modeBtn">隨機盤</button>
+  <button id="moreBtn">補料</button>
+  <button id="blendBtn">疊色</button>
+  <button id="lookBtn">外觀</button>
+  <button id="undoBtn">復原</button>
   <button id="saveBtn">存圖</button>
   <button id="clearBtn">清空</button>
+</div>
+<div id="ui2">
+  <button id="skinBtn">黏土</button>
+  <button id="bgBtn">紙</button>
+</div>
 </div>
 <div id="toast"></div>
 <canvas id="cv"></canvas>
@@ -59,10 +77,20 @@
 <script>
 'use strict';
 /* ============================================================
-   Plop 黏土拼桌 v1
+   Plop 黏土拼桌 v6
    純平面拼擺小品：拖曳、邊對邊磁吸、群組拖動、長按拆件、
-   推擠防重疊、一盤制/自由制、存 PNG、清空。
-   無旋轉（v1 刻意不做，見計畫書）。
+   推擠防重疊、存 PNG、清空。
+   v2：點一下旋轉 45°、有機形平滑曲線（凹多邊形以凸部件做碰撞）。
+   v3：隨機盤/自由制、疊色開關（無磁吸半透明混色）、
+   風格皮膚（黏土/蒙德里安/黑白灰）、背景（紙/木紋/格紋/點點）、
+   多邊同時磁吸、新形狀（拱門/長方/梯形/圓）、群組中心旋轉。
+   v4：疊色亮色改半透明（multiply 會隱形）、黑白灰去描邊、
+   平四斜邊改 45°、新增門型（塞得進拱門）、三角改齊格（156/78）、
+   木紋改直向纖維＋深色底、格紋點點加密、復原一步、隨機盤補料。
+   v5：疊色亮色加細描邊（淺背景輪廓）、木紋放棄改素面深灰、
+   刪長條、長方高切半（156×39）、皮膚/背景收進「外觀」第二列。
+   v6：疊色再修——蒙德里安白轉深灰（blendSwap）、移除亮色描邊
+   （黑白灰疊色搭深背景即可）；新增小方（39×39）與拱橋（半圓環）。
    ============================================================ */
 
 // ---------- 基本常數 ----------
@@ -78,10 +106,27 @@ const MATE_EPS     = 1.8;   // 判定「邊已咬合」的共線容差
 const PUSH_MIN     = 0.6;   // 穿透小於此值不推（避免吸附後互推蠕動）
 const PUSH_RECENT  = 500;   // 被推過的群組，釋放時多久內不自動成組(ms)
 const MARGIN       = 6;     // 桌面邊界內縮
+const DEL_H        = 70;    // 隨機盤模式：拖曳中底部刪除區高度
 
-// ---------- 色盤（黏土：土陶/灰藍/暖褐/米/木） ----------
-const PALETTE = ['#bd8a71','#8fa1ab','#a89070','#d6c7ac','#8d7358','#c4a37e'];
-const PAPER   = '#ede8dd';
+// ---------- 風格皮膚（積木配色＋描邊＋陰影） ----------
+const SKINS = {
+  clay:     { label:'黏土',     palette:['#bd8a71','#8fa1ab','#a89070','#d6c7ac','#8d7358','#c4a37e'],
+              stroke:'rgba(60,46,30,0.10)', strokeW:1.5, shadow:true },
+  mondrian: { label:'蒙德里安', palette:['#d40920','#f7d842','#1356a2','#f2f5f1','#d40920','#f2f5f1'],
+              stroke:'#161616', strokeW:5, shadow:false,
+              blendSwap:{'#f2f5f1':'#4d4d4d'} },   // 疊色時白轉深灰（白走 multiply 隱形、半透明又看不清）
+  mono:     { label:'黑白灰',   palette:['#1c1c1c','#f2f2f2','#8a8a8a','#cccccc','#4d4d4d','#e0e0e0'],
+              stroke:null, strokeW:0, shadow:true },   // 不描邊：靠明度差分塊就好
+};
+const SKIN_ORDER=['clay','mondrian','mono'];
+// ---------- 背景 ----------
+const BGS = {
+  paper:{ label:'紙',   base:'#ede8dd' },
+  wood: { label:'深灰', base:'#9a9a9a' },   // 素面深灰（key 沿用 wood 保存檔相容）；木紋已放棄
+  grid: { label:'格紋', base:'#f0ece1' },
+  dots: { label:'點點', base:'#ece5d6' },
+};
+const BG_ORDER=['paper','wood','grid','dots'];
 const TRAY_BG = '#e3dbca';
 const INK     = '#6b5f4e';
 
@@ -120,33 +165,116 @@ function allEdges(pts){
   for(let i=0;i<pts.length;i++) e.push([i,(i+1)%pts.length]);
   return e;
 }
-// edges: 可吸附的直邊（頂點索引對）；organic: 只吸不對齊
+// 拱門：外框 120×90，門洞寬 68、直壁到 y=11、頂上半圓 r=34
+function archPts(){
+  const pts=[[-60,-45],[60,-45],[60,45],[34,45],[34,11]];
+  for(let i=1;i<8;i++){
+    const t=-i/8*Math.PI;                        // 0 → −π（往上繞過門頂）
+    pts.push([34*Math.cos(t), 11+34*Math.sin(t)]);
+  }
+  pts.push([-34,11],[-34,45],[-60,45]);
+  return pts;
+}
+const SEMI_CY = 4*68/(3*Math.PI);                // 半圓弧心的局部 y 偏移
+// 門：寬 68、直壁高 34、頂半圓 r=34（總高 68 ＝ 拱門門洞尺寸，塞得進去）
+function doorPts(){
+  const pts=[];
+  for(let i=0;i<=8;i++){
+    const t=-Math.PI + i/8*Math.PI;              // 左壁頂 → 越過門頂 → 右壁頂
+    pts.push([34*Math.cos(t), 34*Math.sin(t)]);
+  }
+  pts.push([34,34],[-34,34]);
+  return pts;
+}
+// 拱橋：半圓環（外 r=68＝半圓、內 r=34＝門/拱門洞→門塞得進橋洞），腳寬 34
+const BRIDGE_CY = 4*(68**3-34**3)/(3*Math.PI*(68**2-34**2));   // 半圓環形心 y 偏移（≈33.7）
+function bridgePts(){
+  const pts=[];
+  for(let i=0;i<=8;i++){                         // 外弧 左→頂→右
+    const t=Math.PI - i/8*Math.PI;
+    pts.push([68*Math.cos(t), BRIDGE_CY-68*Math.sin(t)]);
+  }
+  for(let i=0;i<=8;i++){                         // 內弧 右→頂→左（與門的外弧同取樣，能剛好互嵌）
+    const t=i/8*Math.PI;
+    pts.push([34*Math.cos(t), BRIDGE_CY-34*Math.sin(t)]);
+  }
+  return pts;
+}
+const BRIDGE=bridgePts();
+// edges: 可吸附的直邊（頂點索引對）；organic: 只吸不對齊（渲染走平滑曲線）
+// parts: 凹多邊形的凸部件（碰撞用）；未給則以整個 pts 當唯一部件
+// trace: 自訂描邊路徑（含真圓弧），沒給就照 pts 畫
 const SHAPES = {
-  triBig:  { pts:rightTri(150),                edges:'all', organic:false, quota:4, label:'大三角' },
-  triSmall:{ pts:rightTri(88),                 edges:'all', organic:false, quota:6, label:'小三角' },
-  square:  { pts:rect(78,78),                  edges:'all', organic:false, quota:4, label:'方' },
-  bar:     { pts:rect(170,52),                 edges:'all', organic:false, quota:3, label:'長條' },
-  para:    { pts:centerPts([[0,0],[118,0],[164,58],[46,58]]), edges:'all', organic:false, quota:3, label:'平四' },
-  semi:    { pts:semicircle(68,12),            edges:[[12,0]], organic:false, quota:3, label:'半圓' },
-  pebble:  { pts:blob(56,45,16,0.05,0.7,0.03,2.1), edges:[], organic:true, quota:3, label:'鵝卵石' },
-  bean:    { pts:blob(66,37,16,0.06,2.6,0.03,0.4), edges:[], organic:true, quota:2, label:'豆' },
+  triBig:  { pts:rightTri(156),                edges:'all', organic:false, label:'大三角' },  // 腰＝兩個方塊
+  triSmall:{ pts:rightTri(78),                 edges:'all', organic:false, label:'小三角' },  // 腰＝一個方塊
+  isoTri:  { pts:centerPts([[0,0],[60,0],[30,-116]]), edges:'all', organic:false, label:'等腰' },
+  square:  { pts:rect(78,78),                  edges:'all', organic:false, label:'方' },
+  squareS: { pts:rect(39,39),                  edges:'all', organic:false, label:'小方' }, // 邊＝半方塊（與格紋 39 同尺度）
+  rectBig: { pts:rect(156,39),                 edges:'all', organic:false, label:'長方' }, // 寬＝兩方塊、高＝半方塊
+  para:    { pts:centerPts([[0,0],[118,0],[176,58],[58,58]]), edges:'all', organic:false, label:'平四' }, // 斜邊 45°（偏移＝高）
+  trap:    { pts:centerPts([[0,0],[130,0],[98,-32],[32,-32]]), edges:'all', organic:false, label:'梯形' },
+  stair:   { pts:[[-39,-39],[-13,-39],[-13,-13],[13,-13],[13,13],[39,13],[39,39],[-39,39]],
+             parts:[ [[-39,-39],[-13,-39],[-13,39],[-39,39]],
+                     [[-13,-13],[13,-13],[13,39],[-13,39]],
+                     [[13,13],[39,13],[39,39],[13,39]] ],
+             edges:'all', organic:false, label:'階梯' },
+  arch:    { pts:archPts(),
+             parts:[ [[-60,-45],[-34,-45],[-34,45],[-60,45]],
+                     [[34,-45],[60,-45],[60,45],[34,45]],
+                     [[-34,-45],[34,-45],[34,-23],[-34,-23]] ],
+             edges:[[0,1],[1,2],[2,3],[3,4],[12,13],[13,14],[14,0]],
+             organic:false, label:'拱門',
+             trace:c=>{
+               c.moveTo(-60,-45); c.lineTo(60,-45); c.lineTo(60,45);
+               c.lineTo(34,45); c.lineTo(34,11);
+               c.arc(0,11,34,0,Math.PI,true);
+               c.lineTo(-34,45); c.lineTo(-60,45); c.closePath();
+             } },
+  door:    { pts:doorPts(), edges:[[8,9],[9,10],[10,0]], organic:false, label:'門',
+             trace:c=>{
+               c.moveTo(34,0); c.lineTo(34,34); c.lineTo(-34,34); c.lineTo(-34,0);
+               c.arc(0,0,34,Math.PI,Math.PI*2,false);
+               c.closePath();
+             } },
+  bridge:  { pts:BRIDGE,
+             // 8 個梯形部件沿弧分段（凹形不能整塊做 SAT）；索引對映：外弧 i、內弧同角度 17-i
+             parts:Array.from({length:8},(_,i)=>[BRIDGE[i],BRIDGE[i+1],BRIDGE[16-i],BRIDGE[17-i]]),
+             edges:[[8,9],[17,0]], organic:false, label:'拱橋',
+             trace:c=>{
+               c.arc(0,BRIDGE_CY,68,Math.PI,Math.PI*2,false);   // 外弧 左→頂→右
+               c.lineTo(34,BRIDGE_CY);
+               c.arc(0,BRIDGE_CY,34,Math.PI*2,Math.PI,true);    // 內弧 右→頂→左
+               c.closePath();
+             } },
+  semi:    { pts:semicircle(68,12),            edges:[[12,0]], organic:false, label:'半圓',
+             trace:c=>{
+               c.arc(0,SEMI_CY,68,Math.PI,Math.PI*2,false);
+               c.closePath();
+             } },
+  circle:  { pts:blob(40,40,24,0,0,0,0),       edges:[], organic:true, label:'圓',
+             trace:c=>{ c.arc(0,0,40,0,Math.PI*2); c.closePath(); } },
+  pebble:  { pts:blob(56,45,22,0.05,0.7,0.03,2.1), edges:[], organic:true, label:'鵝卵石' },
+  bean:    { pts:blob(66,37,22,0.06,2.6,0.03,0.4), edges:[], organic:true, label:'豆' },
 };
 for(const k in SHAPES){
   const s=SHAPES[k];
   if(s.edges==='all') s.edges=allEdges(s.pts);
+  if(!s.parts) s.parts=[s.pts];
   s.key=k;
   // 局部座標 bbox（畫塊盤縮圖與碰撞粗篩用）
   let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
   for(const p of s.pts){ x0=Math.min(x0,p[0]); y0=Math.min(y0,p[1]); x1=Math.max(x1,p[0]); y1=Math.max(y1,p[1]); }
   s.bbox=[x0,y0,x1,y1];
 }
-const TRAY_ORDER=['triBig','triSmall','square','bar','para','semi','pebble','bean'];
+const TRAY_ORDER=['triBig','triSmall','isoTri','square','squareS','rectBig','para','trap','stair','arch','door','bridge','semi','circle','pebble','bean'];
 
 // ---------- 狀態 ----------
 let W=0,H=0,DPR=1, trayTop=0;
-let pieces=[];              // {id, shape, color, x, y, gid, anim, floating}
+let pieces=[];              // {id, shape, ci, x, y, rot, gid, anim, floating}
 let gidSeq=1, idSeq=1, colorSeq=0;
-let mode='tray';            // 'tray' 一盤制 | 'free' 自由制
+let mode='rand';            // 'rand' 隨機盤（無塊盤） | 'free' 自由制（有塊盤）
+let blend=false;            // 疊色開關：無磁吸、可重疊、半透明混色
+let skinKey='clay', bgKey='paper';
 let wells=[];               // {shape, x, y, w, h}
 let pushedAt=new Map();     // gid -> timestamp（拖曳中被推過）
 let dirty=true;
@@ -156,13 +284,21 @@ const cv=document.getElementById('cv');
 const ctx=cv.getContext('2d');
 
 // ---------- 幾何工具 ----------
-function worldPts(p){
-  const s=SHAPES[p.shape];
-  return s.pts.map(q=>[q[0]+p.x, q[1]+p.y]);
+function xformPts(pts,p){
+  if(!p.rot) return pts.map(q=>[q[0]+p.x, q[1]+p.y]);
+  const c=Math.cos(p.rot), s=Math.sin(p.rot);
+  return pts.map(q=>[q[0]*c-q[1]*s+p.x, q[0]*s+q[1]*c+p.y]);
 }
+function worldPts(p){ return xformPts(SHAPES[p.shape].pts,p); }
+function worldParts(p){ return SHAPES[p.shape].parts.map(part=>xformPts(part,p)); }
 function worldBBox(p){
-  const b=SHAPES[p.shape].bbox;
-  return [b[0]+p.x, b[1]+p.y, b[2]+p.x, b[3]+p.y];
+  const pts=worldPts(p);
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(const q of pts){
+    if(q[0]<x0)x0=q[0]; if(q[0]>x1)x1=q[0];
+    if(q[1]<y0)y0=q[1]; if(q[1]>y1)y1=q[1];
+  }
+  return [x0,y0,x1,y1];
 }
 function bboxOverlap(a,b,pad){
   return a[0]-pad<b[2] && a[2]+pad>b[0] && a[1]-pad<b[3] && a[3]+pad>b[1];
@@ -281,9 +417,20 @@ function edgeMated(p,q){
   }
   return false;
 }
+// 兩塊間最小間隙（逐凸部件取最近的一對；凹形如階梯才算得準）
+function pieceGap(p,q){
+  let best={gap:1e18, axis:null};
+  for(const A of worldParts(p)){
+    for(const B of worldParts(q)){
+      const g=gapInfo(A,B);
+      if(g.gap<best.gap) best=g;
+    }
+  }
+  return best;
+}
 function inContact(p,q,eps){
   if(!bboxOverlap(worldBBox(p),worldBBox(q),eps+1)) return false;
-  return gapInfo(worldPts(p),worldPts(q)).gap <= eps;
+  return pieceGap(p,q).gap <= eps;
 }
 function adjacent(p,q){
   const org=SHAPES[p.shape].organic || SHAPES[q.shape].organic;
@@ -313,7 +460,9 @@ function splitGroup(gid){
 }
 
 // ---------- 邊對邊吸附（拖曳中即時計算） ----------
-function findEdgeSnap(dragList){
+// minScore：略過位移小於此值的候選（第二輪找「還沒吸上的另一條邊」用）
+function findEdgeSnap(dragList,minScore){
+  minScore=minScore||0;
   const dragSet=new Set(dragList.map(p=>p.id));
   let best=null;
   for(const dp of dragList){
@@ -356,7 +505,8 @@ function findEdgeSnap(dragList){
           tx+=ex*shift; ty+=ey*shift;
           const score=Math.hypot(tx,ty);
           if(score>SNAP_PERP+SNAP_END) continue;
-          if(!best || score<best.score) best={dx:tx,dy:ty,score};
+          if(score<minScore) continue;
+          if(!best || score<best.score) best={dx:tx,dy:ty,score,tx:ex,ty:ey};
         }
       }
     }
@@ -376,20 +526,26 @@ function resolveCollisions(dragGid){
         const l1=groupPieces(g1), l2=groupPieces(g2);
         if(!bboxOverlap(groupBBox(l1),groupBBox(l2),2)) continue;
         for(const p of l1){
-          const pb=worldBBox(p), pp=worldPts(p);
+          const pb=worldBBox(p);
           for(const q of l2){
             if(!bboxOverlap(pb,worldBBox(q),1)) continue;
-            const m=mtv(pp,worldPts(q));
-            if(!m) continue;
-            moved=true;
-            if(g1===dragGid){          // 拖曳中的群組是「手」，只推對方
-              moveGroup(l2,m[0],m[1]); pushedAt.set(g2,now);
-            }else if(g2===dragGid){
-              moveGroup(l1,-m[0],-m[1]); pushedAt.set(g1,now);
-            }else{                     // 兩個都可動：各退一半
-              moveGroup(l1,-m[0]/2,-m[1]/2);
-              moveGroup(l2, m[0]/2, m[1]/2);
-              pushedAt.set(g1,now); pushedAt.set(g2,now);
+            for(const pa of worldParts(p)){
+              let hit=false;
+              for(const qb of worldParts(q)){
+                const m=mtv(pa,qb);
+                if(!m) continue;
+                moved=true; hit=true;
+                if(g1===dragGid){      // 拖曳中的群組是「手」，只推對方
+                  moveGroup(l2,m[0],m[1]); pushedAt.set(g2,now);
+                }else if(g2===dragGid){
+                  moveGroup(l1,-m[0],-m[1]); pushedAt.set(g1,now);
+                }else{                 // 兩個都可動：各退一半
+                  moveGroup(l1,-m[0]/2,-m[1]/2);
+                  moveGroup(l2, m[0]/2, m[1]/2);
+                  pushedAt.set(g1,now); pushedAt.set(g2,now);
+                }
+              }
+              if(hit) break;           // 位置已變，其餘部件下一輪迭代再算
             }
           }
         }
@@ -404,20 +560,32 @@ function resolveCollisions(dragGid){
 // ---------- 塊盤 ----------
 function layoutWells(){
   wells=[];
+  if(!trayVisible()) return;
   const n=TRAY_ORDER.length;
-  const gap=6;
-  const w=Math.min(96,(W-24-gap*(n-1))/n);
+  const gap=4;
+  const w=Math.min(96,(W-20-gap*(n-1))/n);
   const total=w*n+gap*(n-1);
   let x=(W-total)/2;
   for(const key of TRAY_ORDER){
-    wells.push({shape:key, x, y:trayTop+10, w, h:TRAY_H-32});
+    wells.push({shape:key, x, y:trayTop+10, w, h:TRAY_H-24});
     x+=w+gap;
   }
 }
-function stockOf(key){
-  if(mode==='free') return Infinity;
-  const used=pieces.filter(p=>p.shape===key).length;
-  return Math.max(0, SHAPES[key].quota-used);
+
+// ---------- 復原（每個會動到塊的手勢前存一張快照） ----------
+let undoStack=[];
+function pushUndo(){
+  undoStack.push(pieces.map(p=>({shape:p.shape,ci:p.ci,x:p.x,y:p.y,rot:p.rot||0,gid:p.gid})));
+  if(undoStack.length>30) undoStack.shift();
+}
+function doUndo(){
+  if(drag||press) return;            // 拖曳中換掉 pieces 會留下孤兒塊
+  if(!undoStack.length){ showToast('沒有可復原的'); return; }
+  const snap=undoStack.pop();
+  pieces=snap.map(r=>({id:idSeq++,shape:r.shape,ci:r.ci,x:r.x,y:r.y,rot:r.rot,gid:r.gid,anim:null,floating:false}));
+  if(blend) for(const p of pieces) p.gid=gidSeq++;   // 疊色模式不該有群組
+  pushedAt.clear();
+  saveState(); dirty=true;
 }
 
 // ---------- 拖曳 / 長按 ----------
@@ -438,6 +606,10 @@ function bringGroupToTop(gid){
   for(const p of pieces) (p.gid===gid?g:rest).push(p);
   pieces=rest.concat(g);
 }
+function trayVisible(){ return mode==='free'; }
+// 收回/刪除區的上緣：自由制＝塊盤；隨機盤＝拖曳中才出現的底部刪除帶
+function recallY(){ return trayVisible() ? trayTop : H-DEL_H; }
+
 function startDrag(gid,px,py){
   bringGroupToTop(gid);
   const list=groupPieces(gid);
@@ -446,6 +618,8 @@ function startDrag(gid,px,py){
     base:list.map(p=>[p.x,p.y]),
     sx:px, sy:py,
     snap:null, overTray:false,
+    // 起拖點已在收回/刪除區內（含從塊盤取塊）→ 要先離開該區，之後拖回才算收回
+    armRecall: py < recallY()-2,
     pointerId:press?press.pointerId:null
   };
 }
@@ -455,22 +629,42 @@ function applyDrag(px,py){
     drag.list[i].x=drag.base[i][0]+dxAll;
     drag.list[i].y=drag.base[i][1]+dyAll;
   }
-  drag.overTray = py>trayTop;
+  const ry=recallY();
+  if(py<ry-12) drag.armRecall=true;
+  drag.overTray = drag.armRecall && py>ry;
   if(!drag.overTray){
-    drag.snap=findEdgeSnap(drag.list);
-    if(drag.snap) moveGroup(drag.list,drag.snap.dx,drag.snap.dy);
-    clampGroup(drag.list);
-    resolveCollisions(drag.gid);
-  }else{
     drag.snap=null;
+    if(!blend){
+      const s1=findEdgeSnap(drag.list);
+      if(s1){
+        moveGroup(drag.list,s1.dx,s1.dy);
+        drag.snap=s1;
+        // 第二條邊：只沿第一條邊的切向滑動對齊，兩邊同時咬上不打架
+        const s2=findEdgeSnap(drag.list,0.5);
+        if(s2){
+          const d=s2.dx*s1.tx+s2.dy*s1.ty;
+          if(Math.abs(d)>0.01 && Math.abs(d)<=SNAP_PERP+SNAP_END)
+            moveGroup(drag.list,s1.tx*d,s1.ty*d);
+        }
+      }
+    }
+    clampGroup(drag.list);
+    if(!blend) resolveCollisions(drag.gid);
   }
   dirty=true;
 }
 function endDrag(){
   const d=drag; drag=null;
-  if(d.overTray){                      // 拖回盤中 = 收回
+  if(d.overTray){                      // 拖回盤中／刪除帶 = 收回
     const ids=new Set(d.list.map(p=>p.id));
     pieces=pieces.filter(p=>!ids.has(p.id));
+    saveState(); dirty=true;
+    return;
+  }
+  if(blend){                           // 疊色：不貼靠、不成組，落下即定
+    const tb=performance.now();
+    for(const p of d.list){ p.floating=false; p.anim={type:'drop',t0:tb}; }
+    pushedAt.clear();
     saveState(); dirty=true;
     return;
   }
@@ -482,12 +676,12 @@ function endDrag(){
   if(!d.snap){
     let bestPull=null;
     for(const dp of d.list){
-      const db=worldBBox(dp), dpp=worldPts(dp);
+      const db=worldBBox(dp);
       for(const op of pieces){
         if(dragSet.has(op.id)) continue;
         if(!notPushed(op.gid)) continue;
         if(!bboxOverlap(db,worldBBox(op),PULL_GAP+2)) continue;
-        const gi=gapInfo(dpp,worldPts(op));
+        const gi=pieceGap(dp,op);
         if(gi.gap>0 && gi.gap<=PULL_GAP){
           if(!bestPull || gi.gap<bestPull.gap) bestPull=gi;
         }
@@ -515,18 +709,16 @@ function endDrag(){
 }
 
 function spawnFromWell(well,px,py){
-  if(stockOf(well.shape)<=0) return;
+  pushUndo();
   const p={
     id:idSeq++, shape:well.shape,
-    color:PALETTE[colorSeq++%PALETTE.length],
+    ci:colorSeq++,
     x:px, y:Math.min(py-46, trayTop-30),
-    gid:gidSeq++, anim:null, floating:false
+    rot:0, gid:gidSeq++, anim:null, floating:false
   };
   pieces.push(p);
   hintAlpha=0;
-  press={piece:p, sx:px, sy:py, timer:null, pointerId:activePointer};
-  startDrag(p.gid,px,py);
-  press=null;
+  startDrag(p.gid,px,py);   // 起拖點在盤區內 → armRecall 自動為 false，先離盤才能收回
   dirty=true;
 }
 
@@ -545,6 +737,7 @@ cv.addEventListener('pointerdown',ev=>{
   }
   const p=topPieceAt(x,y);
   if(!p){ activePointer=null; return; }
+  pushUndo();                        // 之後不論轉、拖、拆、刪，都能退回這一刻
   press={piece:p, sx:x, sy:y, pointerId:ev.pointerId, timer:null};
   press.timer=setTimeout(()=>{
     if(!press || press.piece!==p) return;
@@ -576,14 +769,43 @@ cv.addEventListener('pointermove',ev=>{
   if(drag) applyDrag(x,y);
 });
 
-function finishPointer(ev){
+// 點一下（沒拖動、沒到長按）＝整組繞群組中心轉 45°
+function rotateGroup(piece){
+  const list=groupPieces(piece.gid);
+  const gb=groupBBox(list);
+  const cx=(gb[0]+gb[2])/2, cy=(gb[1]+gb[3])/2;
+  const c=Math.SQRT1_2, s=Math.SQRT1_2;   // cos45 / sin45
+  const t0=performance.now();
+  for(const p of list){
+    p.anim={type:'spin', t0, fx:p.x, fy:p.y, fr:p.rot};
+    const dx=p.x-cx, dy=p.y-cy;
+    p.x=cx+dx*c-dy*s;
+    p.y=cy+dx*s+dy*c;
+    p.rot+=Math.PI/4;
+  }
+  bringGroupToTop(piece.gid);
+  clampGroup(list);
+  if(!blend) resolveCollisions(piece.gid);
+  pushedAt.clear();
+  saveState(); dirty=true;
+}
+cv.addEventListener('pointerup',ev=>{
+  if(ev.pointerId!==activePointer) return;
+  activePointer=null;
+  if(press){
+    clearTimeout(press.timer);
+    const p=press.piece; press=null;
+    rotateGroup(p);
+    return;
+  }
+  if(drag) endDrag();
+});
+cv.addEventListener('pointercancel',ev=>{
   if(ev.pointerId!==activePointer) return;
   activePointer=null;
   if(press){ clearTimeout(press.timer); press=null; }
   if(drag) endDrag();
-}
-cv.addEventListener('pointerup',finishPointer);
-cv.addEventListener('pointercancel',finishPointer);
+});
 
 // ---------- 繪製 ----------
 let grain=null;
@@ -600,83 +822,150 @@ function makeGrain(){
   gc.putImageData(img,0,0);
   grain=ctx.createPattern(g,'repeat');
 }
-function piecePath(c,p,sx,sy){
-  const pts=SHAPES[p.shape].pts;
-  c.save();
-  c.translate(p.x,p.y);
-  c.scale(sx,sy);
-  c.beginPath();
-  c.moveTo(pts[0][0],pts[0][1]);
-  for(let i=1;i<pts.length;i++) c.lineTo(pts[i][0],pts[i][1]);
+// 背景細節圖樣（疊在 base 色之上），首次用到才生、之後快取
+const bgPatterns={};
+function bgPattern(key){
+  if(bgPatterns[key]!==undefined) return bgPatterns[key];
+  let pat=null;
+  const t=document.createElement('canvas');
+  const tc=t.getContext('2d');
+  if(key==='paper'){
+    pat=grain;
+  }else if(key==='grid'){
+    t.width=t.height=39;                         // 39＝方塊 78 的一半，尺度一致
+    tc.strokeStyle='rgba(107,95,78,0.14)';
+    tc.lineWidth=1;
+    tc.beginPath();
+    tc.moveTo(0.5,0); tc.lineTo(0.5,39);
+    tc.moveTo(0,0.5); tc.lineTo(39,0.5);
+    tc.stroke();
+    pat=ctx.createPattern(t,'repeat');
+  }else if(key==='dots'){
+    t.width=t.height=40;
+    tc.fillStyle='rgba(107,95,78,0.16)';
+    for(const [dx,dy] of [[10,10],[30,30]]){     // 交錯點陣
+      tc.beginPath(); tc.arc(dx,dy,1.8,0,Math.PI*2); tc.fill();
+    }
+    pat=ctx.createPattern(t,'repeat');
+  }
+  bgPatterns[key]=pat;
+  return pat;
+}
+function paintBG(c,w,h){
+  c.fillStyle=BGS[bgKey].base;
+  c.fillRect(0,0,w,h);
+  const pat=bgPattern(bgKey);
+  if(pat){ c.fillStyle=pat; c.fillRect(0,0,w,h); }
+}
+// 自訂路徑（真圓弧）優先；有機形用中點二次曲線；幾何形照直線
+function tracePath(c,s){
+  if(s.trace){ s.trace(c); return; }
+  const pts=s.pts, n=pts.length;
+  if(s.organic){
+    c.moveTo((pts[0][0]+pts[1][0])/2,(pts[0][1]+pts[1][1])/2);
+    for(let i=1;i<=n;i++){
+      const a=pts[i%n], b=pts[(i+1)%n];
+      c.quadraticCurveTo(a[0],a[1],(a[0]+b[0])/2,(a[1]+b[1])/2);
+    }
+  }else{
+    c.moveTo(pts[0][0],pts[0][1]);
+    for(let i=1;i<n;i++) c.lineTo(pts[i][0],pts[i][1]);
+  }
   c.closePath();
+}
+function piecePath(c,shape,x,y,rot,sx,sy){
+  c.save();
+  c.translate(x,y);
+  c.scale(sx,sy);                      // 先縮再轉：墩的橫脹縱扁維持在畫面座標
+  if(rot) c.rotate(rot);
+  c.beginPath();
+  tracePath(c,SHAPES[shape]);
   c.restore();
+}
+// 明度快取：疊色時亮色（白/淺灰）multiply 會隱形，改走半透明疊放
+const _lumCache={};
+function isLight(col){
+  if(_lumCache[col]===undefined){
+    const r=parseInt(col.slice(1,3),16), g=parseInt(col.slice(3,5),16), b=parseInt(col.slice(5,7),16);
+    _lumCache[col]=(0.299*r+0.587*g+0.114*b)/255;
+  }
+  return _lumCache[col]>0.85;   // 0.85：蒙德里安的黃（0.82）留在 multiply，白與淺灰改半透明
 }
 function drawPiece(c,p,now){
   let sx=1, sy=1, lift=0;
-  if(p.anim && p.anim.type==='drop'){
+  let px=p.x, py=p.y, rot=p.rot||0;
+  if(p.anim){
     const t=(now-p.anim.t0)/160;
     if(t>=1){ p.anim=null; }
-    else{
+    else if(p.anim.type==='drop'){
       const k=Math.sin(Math.PI*t)*(1-t);
       sx=1+0.05*k; sy=1-0.07*k;       // 墩：橫脹縱扁
+    }else if(p.anim.type==='spin'){
+      const back=Math.pow(1-t,3);     // 由舊姿態滑到新姿態
+      px=p.x+(p.anim.fx-p.x)*back;
+      py=p.y+(p.anim.fy-p.y)*back;
+      rot=p.rot+(p.anim.fr-p.rot)*back;
     }
   }
+  const skin=SKINS[skinKey];
+  let col=skin.palette[p.ci % skin.palette.length];
+  if(blend && skin.blendSwap && skin.blendSwap[col]) col=skin.blendSwap[col];
   c.save();
-  if(p.floating){
+  if(blend){
+    c.globalAlpha*=0.6;                      // 乘上外層透明度（拖回盤淡出仍有效）
+    if(!isLight(col))
+      c.globalCompositeOperation='multiply'; // 重疊處顏色相乘混色（黃＋紅＝橘）；亮色只半透明
+  }else if(p.floating){
     lift=5;
     sx*=1.07; sy*=1.07;
-    c.shadowColor='rgba(80,63,45,0.34)';
-    c.shadowBlur=20; c.shadowOffsetY=12;
-  }else{
+    if(skin.shadow){
+      c.shadowColor='rgba(80,63,45,0.34)';
+      c.shadowBlur=20; c.shadowOffsetY=12;
+    }
+  }else if(skin.shadow){
     c.shadowColor='rgba(88,70,52,0.26)';
     c.shadowBlur=7; c.shadowOffsetY=3;
   }
   c.translate(0,-lift);
-  piecePath(c,p,sx,sy);
-  c.fillStyle=p.color;
+  piecePath(c,p.shape,px,py,rot,sx,sy);
+  c.fillStyle=col;
   c.fill();
   c.shadowColor='transparent';
-  c.strokeStyle='rgba(60,46,30,0.10)';
-  c.lineWidth=1.5;
-  piecePath(c,p,sx,sy);
-  c.stroke();
+  if(!blend && skin.strokeW){
+    c.strokeStyle=skin.stroke;
+    c.lineWidth=skin.strokeW;
+    piecePath(c,p.shape,px,py,rot,sx,sy);
+    c.stroke();
+  }
   c.restore();
 }
 function drawWellIcon(c,well){
   const s=SHAPES[well.shape];
   const bw=s.bbox[2]-s.bbox[0], bh=s.bbox[3]-s.bbox[1];
-  const k=Math.min((well.w-18)/bw,(well.h-30)/bh,0.55);
-  const cx=well.x+well.w/2, cy=well.y+(well.h-14)/2;
-  const stock=stockOf(well.shape);
+  const k=Math.min((well.w-10)/bw,(well.h-16)/bh,0.55);
+  const cx=well.x+well.w/2, cy=well.y+well.h/2;
   c.save();
   c.translate(cx,cy);
   c.scale(k,k);
   c.beginPath();
-  c.moveTo(s.pts[0][0],s.pts[0][1]);
-  for(let i=1;i<s.pts.length;i++) c.lineTo(s.pts[i][0],s.pts[i][1]);
-  c.closePath();
-  c.fillStyle = stock>0 ? '#b3a284' : '#d5cdbc';
+  tracePath(c,s);
+  c.fillStyle='#b3a284';
   c.fill();
   c.restore();
-  if(mode==='tray'){
-    c.fillStyle = stock>0 ? 'rgba(107,95,78,0.75)' : 'rgba(107,95,78,0.3)';
-    c.font='11px -apple-system, sans-serif';
-    c.textAlign='center';
-    c.fillText(stock, cx, well.y+well.h-2);
-  }
 }
 function draw(){
   const now=performance.now();
   ctx.clearRect(0,0,W,H);
-  // 桌面：米灰紙感
-  ctx.fillStyle=PAPER; ctx.fillRect(0,0,W,H);
-  ctx.fillStyle=grain; ctx.fillRect(0,0,W,H);
-  // 首次引導
-  if(hintAlpha>0 && pieces.length===0){
+  paintBG(ctx,W,H);
+  // 首次引導（自由制空桌才顯示）
+  if(hintAlpha>0 && pieces.length===0 && trayVisible()){
     ctx.fillStyle=`rgba(107,95,78,${0.4*hintAlpha})`;
     ctx.font='15px -apple-system, "PingFang TC", sans-serif';
     ctx.textAlign='center';
     ctx.fillText('從下方拿一塊黏土開始', W/2, trayTop/2);
+    ctx.fillStyle=`rgba(107,95,78,${0.28*hintAlpha})`;
+    ctx.font='13px -apple-system, "PingFang TC", sans-serif';
+    ctx.fillText('點一下塊可旋轉', W/2, trayTop/2+24);
   }
   // 塊
   for(const p of pieces){
@@ -684,23 +973,33 @@ function draw(){
     drawPiece(ctx,p,now);
     ctx.globalAlpha=1;
   }
-  // 塊盤
-  ctx.save();
-  ctx.shadowColor='rgba(90,72,50,0.12)';
-  ctx.shadowBlur=10; ctx.shadowOffsetY=-2;
-  ctx.fillStyle=TRAY_BG;
-  ctx.fillRect(0,trayTop,W,TRAY_H);
-  ctx.restore();
-  ctx.fillStyle=grain; ctx.fillRect(0,trayTop,W,TRAY_H);
-  if(drag && drag.overTray){
-    ctx.fillStyle='rgba(190,140,110,0.16)';
+  if(trayVisible()){
+    // 塊盤
+    ctx.save();
+    ctx.shadowColor='rgba(90,72,50,0.12)';
+    ctx.shadowBlur=10; ctx.shadowOffsetY=-2;
+    ctx.fillStyle=TRAY_BG;
     ctx.fillRect(0,trayTop,W,TRAY_H);
-    ctx.fillStyle='rgba(107,95,78,0.6)';
+    ctx.restore();
+    ctx.fillStyle=grain; ctx.fillRect(0,trayTop,W,TRAY_H);
+    if(drag && drag.overTray){
+      ctx.fillStyle='rgba(190,140,110,0.16)';
+      ctx.fillRect(0,trayTop,W,TRAY_H);
+      ctx.fillStyle='rgba(107,95,78,0.6)';
+      ctx.font='13px -apple-system, "PingFang TC", sans-serif';
+      ctx.textAlign='center';
+      ctx.fillText('放開收回', W/2, trayTop+16);
+    }
+    for(const w of wells) drawWellIcon(ctx,w);
+  }else if(drag && drag.armRecall){
+    // 隨機盤：拖曳中底部出現刪除帶（＝垃圾桶）
+    ctx.fillStyle = drag.overTray ? 'rgba(201,133,111,0.30)' : 'rgba(201,133,111,0.12)';
+    ctx.fillRect(0,H-DEL_H,W,DEL_H);
+    ctx.fillStyle='rgba(120,70,55,0.65)';
     ctx.font='13px -apple-system, "PingFang TC", sans-serif';
     ctx.textAlign='center';
-    ctx.fillText('放開收回', W/2, trayTop+16);
+    ctx.fillText('放開刪除', W/2, H-DEL_H/2+4);
   }
-  for(const w of wells) drawWellIcon(ctx,w);
 }
 function frame(){
   const animating = pieces.some(p=>p.anim) || !!drag;
@@ -726,8 +1025,7 @@ document.getElementById('saveBtn').addEventListener('click',()=>{
   oc.width=w*2; oc.height=h*2;
   const c=oc.getContext('2d');
   c.scale(2,2);
-  c.fillStyle=PAPER; c.fillRect(0,0,w,h);
-  c.fillStyle=grain; c.fillRect(0,0,w,h);
+  paintBG(c,w,h);
   c.translate(pad-b[0],pad-b[1]);
   for(const p of pieces) drawPiece(c,p,performance.now());
   const a=document.createElement('a');
@@ -744,7 +1042,9 @@ clearBtn.addEventListener('click',()=>{
   if(clearArm){
     clearTimeout(clearArm); clearArm=null;
     clearBtn.textContent='清空'; clearBtn.classList.remove('arm');
+    pushUndo();
     pieces=[]; pushedAt.clear();
+    if(mode==='rand') scatterDrop();   // 隨機盤：清空＝重抽一盤
     saveState(); dirty=true;
     return;
   }
@@ -755,19 +1055,127 @@ clearBtn.addEventListener('click',()=>{
     clearBtn.textContent='清空'; clearBtn.classList.remove('arm');
   },2500);
 });
+
+// ---------- 隨機盤 ----------
+function scatterDrop(){
+  const n=10+Math.floor(Math.random()*6);       // 10–15 顆
+  const keys=TRAY_ORDER;
+  const t0=performance.now();
+  for(let i=0;i<n;i++){
+    pieces.push({
+      id:idSeq++, shape:keys[Math.floor(Math.random()*keys.length)],
+      ci:colorSeq++,
+      x:80+Math.random()*Math.max(1,W-160),
+      y:90+Math.random()*Math.max(1,H-200),
+      rot:Math.floor(Math.random()*8)*(Math.PI/4),
+      gid:gidSeq++, anim:{type:'drop',t0}, floating:false
+    });
+  }
+  if(!blend) for(let i=0;i<6;i++) resolveCollisions(-1);
+  for(const g of new Set(pieces.map(p=>p.gid))) clampGroup(groupPieces(g));
+  hintAlpha=0;
+}
+// 補料：不清空，在空位再掉 3–5 顆；只推新塊自己讓位，不動既有構圖
+function refillDrop(){
+  pushUndo();
+  const n=3+Math.floor(Math.random()*3);
+  const t0=performance.now();
+  for(let i=0;i<n;i++){
+    const shape=TRAY_ORDER[Math.floor(Math.random()*TRAY_ORDER.length)];
+    const rot=Math.floor(Math.random()*8)*(Math.PI/4);
+    let best=null;
+    for(let k=0;k<40;k++){                       // 抽 40 個落點，取 bbox 重疊面積最小的
+      const x=80+Math.random()*Math.max(1,W-160);
+      const y=90+Math.random()*Math.max(1,H-200);
+      const b=worldBBox({shape,x,y,rot});
+      let ov=0;
+      for(const q of pieces){
+        const qb=worldBBox(q);
+        const w=Math.min(b[2],qb[2])-Math.max(b[0],qb[0])+8;
+        const h=Math.min(b[3],qb[3])-Math.max(b[1],qb[1])+8;
+        if(w>0&&h>0) ov+=w*h;
+      }
+      if(!best||ov<best.ov) best={x,y,ov};
+      if(ov===0) break;
+    }
+    const p={id:idSeq++,shape,ci:colorSeq++,x:best.x,y:best.y,rot,gid:gidSeq++,anim:{type:'drop',t0},floating:false};
+    pieces.push(p);
+    if(!blend) for(let it=0;it<6;it++){
+      let moved=false;
+      for(const q of pieces){
+        if(q===p) continue;
+        if(!bboxOverlap(worldBBox(p),worldBBox(q),1)) continue;
+        for(const pa of worldParts(p)) for(const qb of worldParts(q)){
+          const m=mtv(qb,pa);                    // 推 p 離開 q
+          if(m){ p.x+=m[0]; p.y+=m[1]; moved=true; }
+        }
+      }
+      clampGroup([p]);
+      if(!moved) break;
+    }
+  }
+  hintAlpha=0;
+  saveState(); dirty=true;
+}
+
+// ---------- 模式 / 疊色 / 風格 / 背景 ----------
 const modeBtn=document.getElementById('modeBtn');
-function updateModeBtn(){ modeBtn.textContent = mode==='tray' ? '一盤制' : '自由制'; }
+const moreBtn=document.getElementById('moreBtn');
+const blendBtn=document.getElementById('blendBtn');
+const skinBtn=document.getElementById('skinBtn');
+const bgBtn=document.getElementById('bgBtn');
+function relayout(){
+  trayTop = trayVisible() ? H-TRAY_H : H;
+  layoutWells();
+  const gids=[...new Set(pieces.map(p=>p.gid))];
+  for(const g of gids) clampGroup(groupPieces(g));
+  dirty=true;
+}
+function updateBtns(){
+  modeBtn.textContent = mode==='rand' ? '隨機盤' : '自由制';
+  moreBtn.style.display = mode==='rand' ? '' : 'none';   // 自由制有塊盤，不需要補料
+  blendBtn.textContent='疊色';
+  blendBtn.classList.toggle('on',blend);
+  skinBtn.textContent=SKINS[skinKey].label;
+  bgBtn.textContent=BGS[bgKey].label;
+}
 modeBtn.addEventListener('click',()=>{
-  mode = mode==='tray' ? 'free' : 'tray';
-  updateModeBtn(); saveState(); dirty=true;
+  mode = mode==='rand' ? 'free' : 'rand';
+  relayout();
+  if(mode==='rand' && pieces.length===0) scatterDrop();
+  updateBtns(); saveState(); dirty=true;
+});
+moreBtn.addEventListener('click',()=>{ if(mode==='rand') refillDrop(); });
+const lookBtn=document.getElementById('lookBtn');
+const ui2=document.getElementById('ui2');
+lookBtn.addEventListener('click',()=>{
+  const open=ui2.classList.toggle('open');
+  lookBtn.classList.toggle('on',open);
+});
+document.getElementById('undoBtn').addEventListener('click',doUndo);
+blendBtn.addEventListener('click',()=>{
+  blend=!blend;
+  if(blend){                 // 進疊色：全部拆成單塊（重疊自由）
+    for(const p of pieces) p.gid=gidSeq++;
+  }
+  updateBtns(); saveState(); dirty=true;
+});
+skinBtn.addEventListener('click',()=>{
+  skinKey=SKIN_ORDER[(SKIN_ORDER.indexOf(skinKey)+1)%SKIN_ORDER.length];
+  updateBtns(); saveState(); dirty=true;
+});
+bgBtn.addEventListener('click',()=>{
+  bgKey=BG_ORDER[(BG_ORDER.indexOf(bgKey)+1)%BG_ORDER.length];
+  updateBtns(); saveState(); dirty=true;
 });
 
 // ---------- 存讀狀態 ----------
 function saveState(){
   try{
     localStorage.setItem('plop-state',JSON.stringify({
-      mode, colorSeq,
-      pieces:pieces.map(p=>({s:p.shape,c:p.color,x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,g:p.gid}))
+      mode, blend, skin:skinKey, bg:bgKey, colorSeq,
+      pieces:pieces.map(p=>({s:p.shape,ci:p.ci%12,x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,g:p.gid,
+                             r:((Math.round((p.rot||0)/(Math.PI/4))%8)+8)%8}))
     }));
   }catch(e){}
 }
@@ -776,14 +1184,23 @@ function loadState(){
     const raw=localStorage.getItem('plop-state');
     if(!raw) return;
     const st=JSON.parse(raw);
-    if(st.mode==='free'||st.mode==='tray') mode=st.mode;
+    if(st.mode==='free'||st.mode==='rand') mode=st.mode;
+    else if(st.mode==='tray') mode='free';   // 舊版一盤制 → 自由制
+    blend = st.blend===true;
+    if(SKINS[st.skin]) skinKey=st.skin;
+    if(BGS[st.bg]) bgKey=st.bg;
     colorSeq=st.colorSeq||0;
     if(Array.isArray(st.pieces)){
+      const oldPal=SKINS.clay.palette;
       const gmap=new Map();
+      let i=0;
       for(const r of st.pieces){
         if(!SHAPES[r.s]) continue;
         if(!gmap.has(r.g)) gmap.set(r.g,gidSeq++);
-        pieces.push({id:idSeq++,shape:r.s,color:r.c,x:r.x,y:r.y,gid:gmap.get(r.g),anim:null,floating:false});
+        let ci = (typeof r.ci==='number') ? r.ci : oldPal.indexOf(r.c);
+        if(ci<0) ci=i;
+        pieces.push({id:idSeq++,shape:r.s,ci,x:r.x,y:r.y,rot:(r.r||0)*(Math.PI/4),gid:gmap.get(r.g),anim:null,floating:false});
+        i++;
       }
       if(pieces.length) hintAlpha=0;
     }
@@ -794,7 +1211,7 @@ function loadState(){
 function resize(){
   DPR=Math.min(window.devicePixelRatio||1,2);
   W=window.innerWidth; H=window.innerHeight;
-  trayTop=H-TRAY_H;
+  trayTop = trayVisible() ? H-TRAY_H : H;
   cv.width=W*DPR; cv.height=H*DPR;
   cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(DPR,0,0,DPR,0,0);
@@ -808,8 +1225,9 @@ document.addEventListener('gesturestart',e=>e.preventDefault());
 
 makeGrain();
 loadState();
-updateModeBtn();
+updateBtns();
 resize();
+if(mode==='rand' && pieces.length===0){ scatterDrop(); saveState(); }
 requestAnimationFrame(frame);
 </script>
 </body>
