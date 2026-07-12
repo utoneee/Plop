@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>Plop｜黏土拼桌</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body {
+    width:100%; height:100%; overflow:hidden;
+    background:#ede8dd;
+    -webkit-user-select:none; user-select:none;
+    -webkit-touch-callout:none;
+    font-family:-apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+  }
+  #cv { display:block; touch-action:none; }
+  #ui {
+    position:fixed; top:calc(10px + env(safe-area-inset-top)); right:14px;
+    display:flex; gap:8px; z-index:10;
+  }
+  #ui button {
+    appearance:none; border:none; cursor:pointer;
+    padding:8px 14px; border-radius:999px;
+    background:rgba(255,252,244,0.72); color:#6b5f4e;
+    font-size:14px; letter-spacing:1px;
+    box-shadow:0 1px 4px rgba(90,72,50,0.14);
+    backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+  }
+  #ui button:active { transform:translateY(1px); }
+  #clearBtn.arm { background:#c9856f; color:#fff8ef; }
+  #brand {
+    position:fixed; top:calc(14px + env(safe-area-inset-top)); left:16px;
+    color:rgba(107,95,78,0.5); font-size:13px; letter-spacing:2px; z-index:10;
+    pointer-events:none;
+  }
+  #toast {
+    position:fixed; left:50%; top:22%;
+    transform:translateX(-50%);
+    padding:9px 20px; border-radius:999px;
+    background:rgba(84,71,55,0.82); color:#f5efe3;
+    font-size:14px; letter-spacing:2px;
+    opacity:0; transition:opacity .35s; pointer-events:none; z-index:20;
+  }
+  #toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<div id="brand">Plop</div>
+<div id="ui">
+  <button id="modeBtn">一盤制</button>
+  <button id="saveBtn">存圖</button>
+  <button id="clearBtn">清空</button>
+</div>
+<div id="toast"></div>
+<canvas id="cv"></canvas>
+
+<script>
+'use strict';
+/* ============================================================
+   Plop 黏土拼桌 v1
+   純平面拼擺小品：拖曳、邊對邊磁吸、群組拖動、長按拆件、
+   推擠防重疊、一盤制/自由制、存 PNG、清空。
+   無旋轉（v1 刻意不做，見計畫書）。
+   ============================================================ */
+
+// ---------- 基本常數 ----------
+const TRAY_H       = 118;   // 塊盤高度
+const SLOP         = 8;     // 長按 vs 拖曳的位移閾值
+const LONGPRESS_MS = 450;   // 長按拆件時間
+const SNAP_PERP    = 15;    // 邊吸附：垂直距離閾值
+const SNAP_END     = 14;    // 邊吸附：端點對齊閾值
+const SNAP_OVERLAP = 12;    // 邊吸附：投影重疊最小值
+const PULL_GAP     = 12;    // 有機形貼靠：釋放時的吸引距離
+const CONTACT_EPS  = 2;     // 判定「貼著」的間隙
+const MATE_EPS     = 1.8;   // 判定「邊已咬合」的共線容差
+const PUSH_MIN     = 0.6;   // 穿透小於此值不推（避免吸附後互推蠕動）
+const PUSH_RECENT  = 500;   // 被推過的群組，釋放時多久內不自動成組(ms)
+const MARGIN       = 6;     // 桌面邊界內縮
+
+// ---------- 色盤（黏土：土陶/灰藍/暖褐/米/木） ----------
+const PALETTE = ['#bd8a71','#8fa1ab','#a89070','#d6c7ac','#8d7358','#c4a37e'];
+const PAPER   = '#ede8dd';
+const TRAY_BG = '#e3dbca';
+const INK     = '#6b5f4e';
+
+// ---------- 形狀定義 ----------
+function centroidOf(pts){
+  let x=0,y=0;
+  for(const p of pts){ x+=p[0]; y+=p[1]; }
+  return [x/pts.length, y/pts.length];
+}
+function centerPts(pts){
+  const c=centroidOf(pts);
+  return pts.map(p=>[p[0]-c[0], p[1]-c[1]]);
+}
+function rightTri(l){ return centerPts([[0,0],[l,0],[0,l]]); }
+function rect(w,h){ return [[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2]]; }
+function semicircle(r,seg){
+  const pts=[];
+  for(let i=0;i<=seg;i++){
+    const t=Math.PI - (i/seg)*Math.PI;           // π → 0
+    pts.push([r*Math.cos(t), -r*Math.sin(t)]);   // 弧朝上
+  }
+  const cy = -4*r/(3*Math.PI);                   // 半圓形心
+  return pts.map(p=>[p[0], p[1]-cy]);
+}
+function blob(rx,ry,n,a1,p1,a2,p2){
+  const pts=[];
+  for(let i=0;i<n;i++){
+    const t=i/n*2*Math.PI;
+    const w=1 + a1*Math.sin(2*t+p1) + a2*Math.sin(3*t+p2);
+    pts.push([Math.cos(t)*rx*w, Math.sin(t)*ry*w]);
+  }
+  return centerPts(pts);
+}
+function allEdges(pts){
+  const e=[];
+  for(let i=0;i<pts.length;i++) e.push([i,(i+1)%pts.length]);
+  return e;
+}
+// edges: 可吸附的直邊（頂點索引對）；organic: 只吸不對齊
+const SHAPES = {
+  triBig:  { pts:rightTri(150),                edges:'all', organic:false, quota:4, label:'大三角' },
+  triSmall:{ pts:rightTri(88),                 edges:'all', organic:false, quota:6, label:'小三角' },
+  square:  { pts:rect(78,78),                  edges:'all', organic:false, quota:4, label:'方' },
+  bar:     { pts:rect(170,52),                 edges:'all', organic:false, quota:3, label:'長條' },
+  para:    { pts:centerPts([[0,0],[118,0],[164,58],[46,58]]), edges:'all', organic:false, quota:3, label:'平四' },
+  semi:    { pts:semicircle(68,12),            edges:[[12,0]], organic:false, quota:3, label:'半圓' },
+  pebble:  { pts:blob(56,45,16,0.05,0.7,0.03,2.1), edges:[], organic:true, quota:3, label:'鵝卵石' },
+  bean:    { pts:blob(66,37,16,0.06,2.6,0.03,0.4), edges:[], organic:true, quota:2, label:'豆' },
+};
+for(const k in SHAPES){
+  const s=SHAPES[k];
+  if(s.edges==='all') s.edges=allEdges(s.pts);
+  s.key=k;
+  // 局部座標 bbox（畫塊盤縮圖與碰撞粗篩用）
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(const p of s.pts){ x0=Math.min(x0,p[0]); y0=Math.min(y0,p[1]); x1=Math.max(x1,p[0]); y1=Math.max(y1,p[1]); }
+  s.bbox=[x0,y0,x1,y1];
+}
+const TRAY_ORDER=['triBig','triSmall','square','bar','para','semi','pebble','bean'];
+
+// ---------- 狀態 ----------
+let W=0,H=0,DPR=1, trayTop=0;
+let pieces=[];              // {id, shape, color, x, y, gid, anim, floating}
+let gidSeq=1, idSeq=1, colorSeq=0;
+let mode='tray';            // 'tray' 一盤制 | 'free' 自由制
+let wells=[];               // {shape, x, y, w, h}
+let pushedAt=new Map();     // gid -> timestamp（拖曳中被推過）
+let dirty=true;
+let hintAlpha=1;            // 首次引導文字
+
+const cv=document.getElementById('cv');
+const ctx=cv.getContext('2d');
+
+// ---------- 幾何工具 ----------
+function worldPts(p){
+  const s=SHAPES[p.shape];
+  return s.pts.map(q=>[q[0]+p.x, q[1]+p.y]);
+}
+function worldBBox(p){
+  const b=SHAPES[p.shape].bbox;
+  return [b[0]+p.x, b[1]+p.y, b[2]+p.x, b[3]+p.y];
+}
+function bboxOverlap(a,b,pad){
+  return a[0]-pad<b[2] && a[2]+pad>b[0] && a[1]-pad<b[3] && a[3]+pad>b[1];
+}
+function axesOf(pts){
+  const ax=[];
+  for(let i=0;i<pts.length;i++){
+    const j=(i+1)%pts.length;
+    const dx=pts[j][0]-pts[i][0], dy=pts[j][1]-pts[i][1];
+    const l=Math.hypot(dx,dy);
+    if(l<1e-6) continue;
+    ax.push([-dy/l, dx/l]);
+  }
+  return ax;
+}
+function projRange(pts,ax){
+  let mn=1e18,mx=-1e18;
+  for(const p of pts){
+    const d=p[0]*ax[0]+p[1]*ax[1];
+    if(d<mn)mn=d; if(d>mx)mx=d;
+  }
+  return [mn,mx];
+}
+// 最小平移向量：把 B 推離 A；未重疊或穿透 < PUSH_MIN 回傳 null
+function mtv(A,B){
+  let best=1e18, bax=null;
+  const axes=axesOf(A).concat(axesOf(B));
+  for(const ax of axes){
+    const [a1,a2]=projRange(A,ax), [b1,b2]=projRange(B,ax);
+    const ov=Math.min(a2,b2)-Math.max(a1,b1);
+    if(ov<=0) return null;
+    if(ov<best){ best=ov; bax=ax; }
+  }
+  if(best<PUSH_MIN) return null;
+  const ca=centroidOf(A), cb=centroidOf(B);
+  const s=((cb[0]-ca[0])*bax[0]+(cb[1]-ca[1])*bax[1])>=0 ? 1 : -1;
+  return [bax[0]*best*s, bax[1]*best*s];
+}
+// 近接資訊：最大軸間隙（≤0 表已相交）與指向 B 的方向軸
+function gapInfo(A,B){
+  let g=-1e18, gax=null;
+  const ca=centroidOf(A), cb=centroidOf(B);
+  const axes=axesOf(A).concat(axesOf(B));
+  for(const ax of axes){
+    const [a1,a2]=projRange(A,ax), [b1,b2]=projRange(B,ax);
+    const gap=Math.max(a1,b1)-Math.min(a2,b2); // = -overlap
+    if(gap>g){
+      g=gap;
+      const s=((cb[0]-ca[0])*ax[0]+(cb[1]-ca[1])*ax[1])>=0 ? 1 : -1;
+      gax=[ax[0]*s, ax[1]*s];
+    }
+  }
+  return {gap:g, axis:gax};
+}
+function pointInPoly(x,y,pts){
+  let inside=false;
+  for(let i=0,j=pts.length-1;i<pts.length;j=i++){
+    const xi=pts[i][0],yi=pts[i][1],xj=pts[j][0],yj=pts[j][1];
+    if(((yi>y)!==(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi)+xi)) inside=true;
+  }
+  return inside;
+}
+
+// ---------- 群組 ----------
+function groupPieces(gid){ return pieces.filter(p=>p.gid===gid); }
+function groupBBox(list){
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(const p of list){
+    const b=worldBBox(p);
+    x0=Math.min(x0,b[0]); y0=Math.min(y0,b[1]);
+    x1=Math.max(x1,b[2]); y1=Math.max(y1,b[3]);
+  }
+  return [x0,y0,x1,y1];
+}
+function moveGroup(list,dx,dy){
+  for(const p of list){ p.x+=dx; p.y+=dy; }
+}
+// 把群組整體夾回桌面範圍，回傳實際位移
+function clampGroup(list){
+  const b=groupBBox(list);
+  let dx=0,dy=0;
+  if(b[0]<MARGIN) dx=MARGIN-b[0];
+  else if(b[2]>W-MARGIN) dx=(W-MARGIN)-b[2];
+  if(b[1]<MARGIN) dy=MARGIN-b[1];
+  else if(b[3]>trayTop-MARGIN) dy=(trayTop-MARGIN)-b[3];
+  if(dx||dy) moveGroup(list,dx,dy);
+  return [dx,dy];
+}
+function unionGroups(g1,g2){
+  if(g1===g2) return;
+  for(const p of pieces) if(p.gid===g2) p.gid=g1;
+}
+// 兩塊是否「已相連」：直邊咬合，或（含有機形）實際貼著
+function edgeMated(p,q){
+  const sp=SHAPES[p.shape], sq=SHAPES[q.shape];
+  if(!sp.edges.length || !sq.edges.length) return false;
+  const wp=worldPts(p), wq=worldPts(q);
+  for(const [i,j] of sp.edges){
+    const a=wp[i], b=wp[j];
+    let dx=b[0]-a[0], dy=b[1]-a[1];
+    const l1=Math.hypot(dx,dy); dx/=l1; dy/=l1;
+    for(const [k,l] of sq.edges){
+      const c=wq[k], e=wq[l];
+      let ex=e[0]-c[0], ey=e[1]-c[1];
+      const l2=Math.hypot(ex,ey); ex/=l2; ey/=l2;
+      if(dx*ex+dy*ey > -0.99) continue;          // 必須反向平行
+      const nx=-ey, ny=ex;                        // 對方邊的法線
+      const d1=(a[0]-c[0])*nx+(a[1]-c[1])*ny;
+      const d2=(b[0]-c[0])*nx+(b[1]-c[1])*ny;
+      if(Math.abs(d1)>MATE_EPS || Math.abs(d2)>MATE_EPS) continue;
+      const ta=(a[0]-c[0])*ex+(a[1]-c[1])*ey;
+      const tb=(b[0]-c[0])*ex+(b[1]-c[1])*ey;
+      const lo=Math.min(ta,tb), hi=Math.max(ta,tb);
+      if(Math.min(hi,l2)-Math.max(lo,0) >= 6) return true;
+    }
+  }
+  return false;
+}
+function inContact(p,q,eps){
+  if(!bboxOverlap(worldBBox(p),worldBBox(q),eps+1)) return false;
+  return gapInfo(worldPts(p),worldPts(q)).gap <= eps;
+}
+function adjacent(p,q){
+  const org=SHAPES[p.shape].organic || SHAPES[q.shape].organic;
+  if(edgeMated(p,q)) return true;
+  if(org && inContact(p,q,CONTACT_EPS)) return true;
+  return false;
+}
+// 拆件後：把 gid 內剩餘塊依相連關係重分組
+function splitGroup(gid){
+  const list=groupPieces(gid);
+  if(list.length<=1) return;
+  const seen=new Set();
+  for(const seed of list){
+    if(seen.has(seed.id)) continue;
+    const ng=gidSeq++;
+    const stack=[seed];
+    seen.add(seed.id);
+    while(stack.length){
+      const cur=stack.pop();
+      cur.gid=ng;
+      for(const o of list){
+        if(seen.has(o.id)) continue;
+        if(adjacent(cur,o)){ seen.add(o.id); stack.push(o); }
+      }
+    }
+  }
+}
+
+// ---------- 邊對邊吸附（拖曳中即時計算） ----------
+function findEdgeSnap(dragList){
+  const dragSet=new Set(dragList.map(p=>p.id));
+  let best=null;
+  for(const dp of dragList){
+    const sp=SHAPES[dp.shape];
+    if(!sp.edges.length) continue;
+    const wp=worldPts(dp);
+    const db=worldBBox(dp);
+    for(const op of pieces){
+      if(dragSet.has(op.id)) continue;
+      const sq=SHAPES[op.shape];
+      if(!sq.edges.length) continue;
+      if(!bboxOverlap(db,worldBBox(op),SNAP_PERP+SNAP_END)) continue;
+      const wq=worldPts(op);
+      for(const [i,j] of sp.edges){
+        const a=wp[i], b=wp[j];
+        let dx=b[0]-a[0], dy=b[1]-a[1];
+        const l1=Math.hypot(dx,dy); dx/=l1; dy/=l1;
+        for(const [k,l] of sq.edges){
+          const c=wq[k], e=wq[l];
+          let ex=e[0]-c[0], ey=e[1]-c[1];
+          const l2=Math.hypot(ex,ey); ex/=l2; ey/=l2;
+          if(dx*ex+dy*ey > -0.985) continue;
+          const nx=-ey, ny=ex;
+          const mx=(a[0]+b[0])/2, my=(a[1]+b[1])/2;
+          const dPerp=(mx-c[0])*nx+(my-c[1])*ny;
+          if(Math.abs(dPerp)>SNAP_PERP) continue;
+          // 垂直對齊平移
+          let tx=-nx*dPerp, ty=-ny*dPerp;
+          // 對齊後的切向投影，檢查重疊
+          const ta=(a[0]+tx-c[0])*ex+(a[1]+ty-c[1])*ey;
+          const tb=(b[0]+tx-c[0])*ex+(b[1]+ty-c[1])*ey;
+          const lo=Math.min(ta,tb), hi=Math.max(ta,tb);
+          const ov=Math.min(hi,l2)-Math.max(lo,0);
+          if(ov<SNAP_OVERLAP) continue;
+          // 端點對齊：挑最小切向平移
+          let shift=0;
+          const s1=-lo, s2=l2-hi;
+          if(Math.abs(s1)<=SNAP_END && Math.abs(s1)<=Math.abs(s2)) shift=s1;
+          else if(Math.abs(s2)<=SNAP_END) shift=s2;
+          tx+=ex*shift; ty+=ey*shift;
+          const score=Math.hypot(tx,ty);
+          if(score>SNAP_PERP+SNAP_END) continue;
+          if(!best || score<best.score) best={dx:tx,dy:ty,score};
+        }
+      }
+    }
+  }
+  return best;
+}
+
+// ---------- 推擠 ----------
+function resolveCollisions(dragGid){
+  const now=performance.now();
+  for(let iter=0;iter<4;iter++){
+    let moved=false;
+    const gids=[...new Set(pieces.map(p=>p.gid))];
+    for(let a=0;a<gids.length;a++){
+      for(let b=a+1;b<gids.length;b++){
+        const g1=gids[a], g2=gids[b];
+        const l1=groupPieces(g1), l2=groupPieces(g2);
+        if(!bboxOverlap(groupBBox(l1),groupBBox(l2),2)) continue;
+        for(const p of l1){
+          const pb=worldBBox(p), pp=worldPts(p);
+          for(const q of l2){
+            if(!bboxOverlap(pb,worldBBox(q),1)) continue;
+            const m=mtv(pp,worldPts(q));
+            if(!m) continue;
+            moved=true;
+            if(g1===dragGid){          // 拖曳中的群組是「手」，只推對方
+              moveGroup(l2,m[0],m[1]); pushedAt.set(g2,now);
+            }else if(g2===dragGid){
+              moveGroup(l1,-m[0],-m[1]); pushedAt.set(g1,now);
+            }else{                     // 兩個都可動：各退一半
+              moveGroup(l1,-m[0]/2,-m[1]/2);
+              moveGroup(l2, m[0]/2, m[1]/2);
+              pushedAt.set(g1,now); pushedAt.set(g2,now);
+            }
+          }
+        }
+        if(g1!==dragGid) clampGroup(l1);
+        if(g2!==dragGid) clampGroup(l2);
+      }
+    }
+    if(!moved) break;
+  }
+}
+
+// ---------- 塊盤 ----------
+function layoutWells(){
+  wells=[];
+  const n=TRAY_ORDER.length;
+  const gap=6;
+  const w=Math.min(96,(W-24-gap*(n-1))/n);
+  const total=w*n+gap*(n-1);
+  let x=(W-total)/2;
+  for(const key of TRAY_ORDER){
+    wells.push({shape:key, x, y:trayTop+10, w, h:TRAY_H-32});
+    x+=w+gap;
+  }
+}
+function stockOf(key){
+  if(mode==='free') return Infinity;
+  const used=pieces.filter(p=>p.shape===key).length;
+  return Math.max(0, SHAPES[key].quota-used);
+}
+
+// ---------- 拖曳 / 長按 ----------
+let drag=null;   // {gid, list, base:[[x,y]..], sx, sy, snap:{dx,dy}, overTray, pointerId}
+let press=null;  // {piece, sx, sy, timer, pointerId}
+
+function topPieceAt(x,y){
+  for(let i=pieces.length-1;i>=0;i--){
+    const p=pieces[i];
+    const b=worldBBox(p);
+    if(x<b[0]||x>b[2]||y<b[1]||y>b[3]) continue;
+    if(pointInPoly(x,y,worldPts(p))) return p;
+  }
+  return null;
+}
+function bringGroupToTop(gid){
+  const g=[], rest=[];
+  for(const p of pieces) (p.gid===gid?g:rest).push(p);
+  pieces=rest.concat(g);
+}
+function startDrag(gid,px,py){
+  bringGroupToTop(gid);
+  const list=groupPieces(gid);
+  drag={
+    gid, list,
+    base:list.map(p=>[p.x,p.y]),
+    sx:px, sy:py,
+    snap:null, overTray:false,
+    pointerId:press?press.pointerId:null
+  };
+}
+function applyDrag(px,py){
+  const dxAll=px-drag.sx, dyAll=py-drag.sy;
+  for(let i=0;i<drag.list.length;i++){
+    drag.list[i].x=drag.base[i][0]+dxAll;
+    drag.list[i].y=drag.base[i][1]+dyAll;
+  }
+  drag.overTray = py>trayTop;
+  if(!drag.overTray){
+    drag.snap=findEdgeSnap(drag.list);
+    if(drag.snap) moveGroup(drag.list,drag.snap.dx,drag.snap.dy);
+    clampGroup(drag.list);
+    resolveCollisions(drag.gid);
+  }else{
+    drag.snap=null;
+  }
+  dirty=true;
+}
+function endDrag(){
+  const d=drag; drag=null;
+  if(d.overTray){                      // 拖回盤中 = 收回
+    const ids=new Set(d.list.map(p=>p.id));
+    pieces=pieces.filter(p=>!ids.has(p.id));
+    saveState(); dirty=true;
+    return;
+  }
+  const now=performance.now();
+  const notPushed=gid=>!(pushedAt.has(gid)&&now-pushedAt.get(gid)<PUSH_RECENT);
+  const dragSet=new Set(d.list.map(p=>p.id));
+
+  // 有機形貼靠：沒吸到邊、但釋放位置離鄰塊很近 → 拉過去挨著
+  if(!d.snap){
+    let bestPull=null;
+    for(const dp of d.list){
+      const db=worldBBox(dp), dpp=worldPts(dp);
+      for(const op of pieces){
+        if(dragSet.has(op.id)) continue;
+        if(!notPushed(op.gid)) continue;
+        if(!bboxOverlap(db,worldBBox(op),PULL_GAP+2)) continue;
+        const gi=gapInfo(dpp,worldPts(op));
+        if(gi.gap>0 && gi.gap<=PULL_GAP){
+          if(!bestPull || gi.gap<bestPull.gap) bestPull=gi;
+        }
+      }
+    }
+    if(bestPull){
+      moveGroup(d.list, bestPull.axis[0]*bestPull.gap, bestPull.axis[1]*bestPull.gap);
+      clampGroup(d.list);
+      resolveCollisions(d.gid);
+    }
+  }
+  // 成組：拖曳塊與（非剛被推開的）鄰塊相連就合併
+  for(const dp of d.list){
+    for(const op of pieces){
+      if(op.gid===dp.gid) continue;
+      if(!notPushed(op.gid)) continue;
+      if(adjacent(dp,op)) unionGroups(dp.gid,op.gid);
+    }
+  }
+  // 落下「墩」一下
+  const t0=performance.now();
+  for(const p of d.list){ p.floating=false; p.anim={type:'drop',t0}; }
+  pushedAt.clear();
+  saveState(); dirty=true;
+}
+
+function spawnFromWell(well,px,py){
+  if(stockOf(well.shape)<=0) return;
+  const p={
+    id:idSeq++, shape:well.shape,
+    color:PALETTE[colorSeq++%PALETTE.length],
+    x:px, y:Math.min(py-46, trayTop-30),
+    gid:gidSeq++, anim:null, floating:false
+  };
+  pieces.push(p);
+  hintAlpha=0;
+  press={piece:p, sx:px, sy:py, timer:null, pointerId:activePointer};
+  startDrag(p.gid,px,py);
+  press=null;
+  dirty=true;
+}
+
+let activePointer=null;
+
+cv.addEventListener('pointerdown',ev=>{
+  if(activePointer!==null) return;
+  activePointer=ev.pointerId;
+  cv.setPointerCapture(ev.pointerId);
+  const x=ev.clientX, y=ev.clientY;
+  if(y>trayTop){
+    for(const w of wells){
+      if(x>=w.x&&x<=w.x+w.w&&y>=w.y&&y<=w.y+w.h){ spawnFromWell(w,x,y); return; }
+    }
+    return;
+  }
+  const p=topPieceAt(x,y);
+  if(!p){ activePointer=null; return; }
+  press={piece:p, sx:x, sy:y, pointerId:ev.pointerId, timer:null};
+  press.timer=setTimeout(()=>{
+    if(!press || press.piece!==p) return;
+    // 長按：單塊浮起、脫離群組
+    const oldGid=p.gid;
+    p.gid=gidSeq++;
+    p.floating=true;
+    splitGroup(oldGid);
+    startDrag(p.gid, press.sx, press.sy);
+    press=null;
+    dirty=true;
+  },LONGPRESS_MS);
+});
+
+cv.addEventListener('pointermove',ev=>{
+  if(ev.pointerId!==activePointer) return;
+  const x=ev.clientX, y=ev.clientY;
+  if(press){
+    if(Math.hypot(x-press.sx,y-press.sy)>SLOP){
+      clearTimeout(press.timer);
+      const gid=press.piece.gid;
+      const sx=press.sx, sy=press.sy;
+      press=null;
+      startDrag(gid,sx,sy);
+      applyDrag(x,y);
+    }
+    return;
+  }
+  if(drag) applyDrag(x,y);
+});
+
+function finishPointer(ev){
+  if(ev.pointerId!==activePointer) return;
+  activePointer=null;
+  if(press){ clearTimeout(press.timer); press=null; }
+  if(drag) endDrag();
+}
+cv.addEventListener('pointerup',finishPointer);
+cv.addEventListener('pointercancel',finishPointer);
+
+// ---------- 繪製 ----------
+let grain=null;
+function makeGrain(){
+  const g=document.createElement('canvas');
+  g.width=g.height=128;
+  const gc=g.getContext('2d');
+  const img=gc.createImageData(128,128);
+  for(let i=0;i<img.data.length;i+=4){
+    const v=200+Math.random()*55|0;
+    img.data[i]=img.data[i+1]=img.data[i+2]=v;
+    img.data[i+3]=Math.random()<0.5?10:0;
+  }
+  gc.putImageData(img,0,0);
+  grain=ctx.createPattern(g,'repeat');
+}
+function piecePath(c,p,sx,sy){
+  const pts=SHAPES[p.shape].pts;
+  c.save();
+  c.translate(p.x,p.y);
+  c.scale(sx,sy);
+  c.beginPath();
+  c.moveTo(pts[0][0],pts[0][1]);
+  for(let i=1;i<pts.length;i++) c.lineTo(pts[i][0],pts[i][1]);
+  c.closePath();
+  c.restore();
+}
+function drawPiece(c,p,now){
+  let sx=1, sy=1, lift=0;
+  if(p.anim && p.anim.type==='drop'){
+    const t=(now-p.anim.t0)/160;
+    if(t>=1){ p.anim=null; }
+    else{
+      const k=Math.sin(Math.PI*t)*(1-t);
+      sx=1+0.05*k; sy=1-0.07*k;       // 墩：橫脹縱扁
+    }
+  }
+  c.save();
+  if(p.floating){
+    lift=5;
+    sx*=1.07; sy*=1.07;
+    c.shadowColor='rgba(80,63,45,0.34)';
+    c.shadowBlur=20; c.shadowOffsetY=12;
+  }else{
+    c.shadowColor='rgba(88,70,52,0.26)';
+    c.shadowBlur=7; c.shadowOffsetY=3;
+  }
+  c.translate(0,-lift);
+  piecePath(c,p,sx,sy);
+  c.fillStyle=p.color;
+  c.fill();
+  c.shadowColor='transparent';
+  c.strokeStyle='rgba(60,46,30,0.10)';
+  c.lineWidth=1.5;
+  piecePath(c,p,sx,sy);
+  c.stroke();
+  c.restore();
+}
+function drawWellIcon(c,well){
+  const s=SHAPES[well.shape];
+  const bw=s.bbox[2]-s.bbox[0], bh=s.bbox[3]-s.bbox[1];
+  const k=Math.min((well.w-18)/bw,(well.h-30)/bh,0.55);
+  const cx=well.x+well.w/2, cy=well.y+(well.h-14)/2;
+  const stock=stockOf(well.shape);
+  c.save();
+  c.translate(cx,cy);
+  c.scale(k,k);
+  c.beginPath();
+  c.moveTo(s.pts[0][0],s.pts[0][1]);
+  for(let i=1;i<s.pts.length;i++) c.lineTo(s.pts[i][0],s.pts[i][1]);
+  c.closePath();
+  c.fillStyle = stock>0 ? '#b3a284' : '#d5cdbc';
+  c.fill();
+  c.restore();
+  if(mode==='tray'){
+    c.fillStyle = stock>0 ? 'rgba(107,95,78,0.75)' : 'rgba(107,95,78,0.3)';
+    c.font='11px -apple-system, sans-serif';
+    c.textAlign='center';
+    c.fillText(stock, cx, well.y+well.h-2);
+  }
+}
+function draw(){
+  const now=performance.now();
+  ctx.clearRect(0,0,W,H);
+  // 桌面：米灰紙感
+  ctx.fillStyle=PAPER; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle=grain; ctx.fillRect(0,0,W,H);
+  // 首次引導
+  if(hintAlpha>0 && pieces.length===0){
+    ctx.fillStyle=`rgba(107,95,78,${0.4*hintAlpha})`;
+    ctx.font='15px -apple-system, "PingFang TC", sans-serif';
+    ctx.textAlign='center';
+    ctx.fillText('從下方拿一塊黏土開始', W/2, trayTop/2);
+  }
+  // 塊
+  for(const p of pieces){
+    if(drag && drag.overTray && p.gid===drag.gid) ctx.globalAlpha=0.35;
+    drawPiece(ctx,p,now);
+    ctx.globalAlpha=1;
+  }
+  // 塊盤
+  ctx.save();
+  ctx.shadowColor='rgba(90,72,50,0.12)';
+  ctx.shadowBlur=10; ctx.shadowOffsetY=-2;
+  ctx.fillStyle=TRAY_BG;
+  ctx.fillRect(0,trayTop,W,TRAY_H);
+  ctx.restore();
+  ctx.fillStyle=grain; ctx.fillRect(0,trayTop,W,TRAY_H);
+  if(drag && drag.overTray){
+    ctx.fillStyle='rgba(190,140,110,0.16)';
+    ctx.fillRect(0,trayTop,W,TRAY_H);
+    ctx.fillStyle='rgba(107,95,78,0.6)';
+    ctx.font='13px -apple-system, "PingFang TC", sans-serif';
+    ctx.textAlign='center';
+    ctx.fillText('放開收回', W/2, trayTop+16);
+  }
+  for(const w of wells) drawWellIcon(ctx,w);
+}
+function frame(){
+  const animating = pieces.some(p=>p.anim) || !!drag;
+  if(dirty || animating){ draw(); dirty=false; }
+  requestAnimationFrame(frame);
+}
+
+// ---------- 存圖 / 清空 / 模式 ----------
+const toast=document.getElementById('toast');
+let toastTimer=null;
+function showToast(msg){
+  toast.textContent=msg;
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>toast.classList.remove('show'),1600);
+}
+document.getElementById('saveBtn').addEventListener('click',()=>{
+  if(pieces.length===0){ showToast('桌上還沒有東西'); return; }
+  const pad=48;
+  const b=groupBBox(pieces);
+  const w=Math.max(b[2]-b[0]+pad*2,400), h=Math.max(b[3]-b[1]+pad*2,400);
+  const oc=document.createElement('canvas');
+  oc.width=w*2; oc.height=h*2;
+  const c=oc.getContext('2d');
+  c.scale(2,2);
+  c.fillStyle=PAPER; c.fillRect(0,0,w,h);
+  c.fillStyle=grain; c.fillRect(0,0,w,h);
+  c.translate(pad-b[0],pad-b[1]);
+  for(const p of pieces) drawPiece(c,p,performance.now());
+  const a=document.createElement('a');
+  const d=new Date();
+  const two=n=>String(n).padStart(2,'0');
+  a.download=`plop-${d.getFullYear()}${two(d.getMonth()+1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}.png`;
+  a.href=oc.toDataURL('image/png');
+  a.click();
+  showToast('已存圖');
+});
+const clearBtn=document.getElementById('clearBtn');
+let clearArm=null;
+clearBtn.addEventListener('click',()=>{
+  if(clearArm){
+    clearTimeout(clearArm); clearArm=null;
+    clearBtn.textContent='清空'; clearBtn.classList.remove('arm');
+    pieces=[]; pushedAt.clear();
+    saveState(); dirty=true;
+    return;
+  }
+  if(pieces.length===0) return;
+  clearBtn.textContent='確定？'; clearBtn.classList.add('arm');
+  clearArm=setTimeout(()=>{
+    clearArm=null;
+    clearBtn.textContent='清空'; clearBtn.classList.remove('arm');
+  },2500);
+});
+const modeBtn=document.getElementById('modeBtn');
+function updateModeBtn(){ modeBtn.textContent = mode==='tray' ? '一盤制' : '自由制'; }
+modeBtn.addEventListener('click',()=>{
+  mode = mode==='tray' ? 'free' : 'tray';
+  updateModeBtn(); saveState(); dirty=true;
+});
+
+// ---------- 存讀狀態 ----------
+function saveState(){
+  try{
+    localStorage.setItem('plop-state',JSON.stringify({
+      mode, colorSeq,
+      pieces:pieces.map(p=>({s:p.shape,c:p.color,x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,g:p.gid}))
+    }));
+  }catch(e){}
+}
+function loadState(){
+  try{
+    const raw=localStorage.getItem('plop-state');
+    if(!raw) return;
+    const st=JSON.parse(raw);
+    if(st.mode==='free'||st.mode==='tray') mode=st.mode;
+    colorSeq=st.colorSeq||0;
+    if(Array.isArray(st.pieces)){
+      const gmap=new Map();
+      for(const r of st.pieces){
+        if(!SHAPES[r.s]) continue;
+        if(!gmap.has(r.g)) gmap.set(r.g,gidSeq++);
+        pieces.push({id:idSeq++,shape:r.s,color:r.c,x:r.x,y:r.y,gid:gmap.get(r.g),anim:null,floating:false});
+      }
+      if(pieces.length) hintAlpha=0;
+    }
+  }catch(e){}
+}
+
+// ---------- 初始化 ----------
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth; H=window.innerHeight;
+  trayTop=H-TRAY_H;
+  cv.width=W*DPR; cv.height=H*DPR;
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  layoutWells();
+  const gids=[...new Set(pieces.map(p=>p.gid))];
+  for(const g of gids) clampGroup(groupPieces(g));
+  dirty=true;
+}
+window.addEventListener('resize',resize);
+document.addEventListener('gesturestart',e=>e.preventDefault());
+
+makeGrain();
+loadState();
+updateModeBtn();
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
