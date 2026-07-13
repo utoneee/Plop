@@ -18,7 +18,6 @@
     font-family:-apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
   }
   #cv { display:block; touch-action:none; }
-  #cv.multiply { mix-blend-mode: multiply; }
   #uiWrap {
     position:fixed; top:calc(10px + env(safe-area-inset-top)); right:14px;
     display:flex; flex-direction:column; align-items:flex-end; gap:8px; z-index:10;
@@ -130,9 +129,9 @@ const SKINS = {
   risograph: { label:'Risograph',   palette:['#ff3b9d','#28c8d4','#f7d842','#ffffff'],
                stroke:null, strokeW:0, shadow:false, texture:'riso', opaqueInk:true,
                blend:{mode:'multiply',allowStack:true} },
-  glassine:  { label:'Glassine',    palette:['#d40920','#1356a2','#f7d842','#1b9e77','#7c4dff'],
-               stroke:'#101010', strokeW:7, shadow:false, keepStroke:true,
-               blend:{mode:'multiply',allowStack:true} },
+  glassine:  { label:'Glassine',    palette:['#f4a6b9','#9fd8e6','#f5df86','#bce3c3','#c9b5ea'],
+               stroke:'#ffffff', strokeW:3, shadow:false, keepStroke:true,
+               blend:{mode:'multiply',allowStack:true,alpha:0.28} },
   mono:      { label:'Black & Gray', palette:['#ffffff','#d9d9d9','#8a8a8a','#4d4d4d','#1c1c1c'],
                stroke:null, strokeW:0, shadow:true },
   monoOverlay:{ label:'Black & Gray Overlay', palette:['#ffffff','#d9d9d9','#8a8a8a','#4d4d4d','#1c1c1c'],
@@ -143,7 +142,7 @@ const SKIN_ORDER=['clay','mondrian','risograph','glassine','mono','monoOverlay']
 // ---------- 背景 ----------
 const BGS = {
   paper:{ label:'紙',   base:'#ede8dd' },
-  wood: { label:'深灰', base:'#9a9a9a' },   // 素面深灰（key 沿用 wood 保存檔相容）；木紋已放棄
+  wood: { label:'深灰', base:'#b4b4b4' },   // 素面深灰（key 沿用 wood 保存檔相容）；木紋已放棄
   grid: { label:'格紋', base:'#f0ece1' },
   dots: { label:'點點', base:'#ece5d6' },
 };
@@ -1013,7 +1012,7 @@ function drawPiece(c,p,now){
     if(skin.opaqueInk && col==='#ffffff'){
       c.globalCompositeOperation='source-over';
     }else{
-      c.globalAlpha*=0.6;                    // 乘上外層透明度（拖回盤淡出仍有效）
+      c.globalAlpha*=skin.blend.alpha||0.6;  // 乘上外層透明度（拖回盤淡出仍有效）
       c.globalCompositeOperation='multiply'; // 重疊處顏色相乘混色（黃＋紅＝橘）
     }
   }else if(p.floating){
@@ -1037,7 +1036,7 @@ function drawPiece(c,p,now){
     piecePath(c,p.shape,px,py,rot,sx,sy);
     c.clip();
     c.globalCompositeOperation='source-over';
-    c.globalAlpha*=0.08;
+    c.globalAlpha*=0.035;
     c.fillStyle=grain;
     c.fillRect(px-100,py-100,200,200);        // 紙纖維
     c.globalAlpha=0.10;
@@ -1245,7 +1244,6 @@ function relayout(){
 function updateBtns(){
   modeBtn.textContent = mode==='rand' ? '隨機盤' : '自由制';
   moreBtn.style.display = mode==='rand' ? '' : 'none';   // 自由制有塊盤，不需要補料
-  cv.classList.toggle('multiply',blend);
   skinBtn.textContent=SKINS[skinKey].label;
   bgBtn.textContent=BGS[bgKey].label;
 }
