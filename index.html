@@ -39,7 +39,6 @@
   }
   #uiWrap button:active { transform:translateY(1px); }
   #clearBtn.arm { background:#c9856f; color:#fff8ef; }
-  #blendBtn.on { background:#9a8ab0; color:#fdfaff; }
   #lookBtn.on { background:#8a7c66; color:#fdf8ec; }
   #brand {
     position:fixed; top:calc(14px + env(safe-area-inset-top)); left:16px;
@@ -63,14 +62,14 @@
 <div id="ui">
   <button id="modeBtn">隨機盤</button>
   <button id="moreBtn">補料</button>
-  <button id="blendBtn">疊色</button>
   <button id="lookBtn">外觀</button>
   <button id="undoBtn">復原</button>
-  <button id="saveBtn">存圖</button>
   <button id="clearBtn">清空</button>
 </div>
 <div id="ui2">
-  <button id="skinBtn">黏土</button>
+  <button id="skinPrevBtn" aria-label="上一個材質">‹</button>
+  <button id="skinBtn">Paper</button>
+  <button id="skinNextBtn" aria-label="下一個材質">›</button>
   <button id="bgBtn">紙</button>
 </div>
 </div>
@@ -1144,26 +1143,6 @@ function showToast(msg){
   clearTimeout(toastTimer);
   toastTimer=setTimeout(()=>toast.classList.remove('show'),1600);
 }
-document.getElementById('saveBtn').addEventListener('click',()=>{
-  if(pieces.length===0){ showToast('桌上還沒有東西'); return; }
-  const pad=48;
-  const b=groupBBox(pieces);
-  const w=Math.max(b[2]-b[0]+pad*2,400), h=Math.max(b[3]-b[1]+pad*2,400);
-  const oc=document.createElement('canvas');
-  oc.width=w*2; oc.height=h*2;
-  const c=oc.getContext('2d');
-  c.scale(2,2);
-  paintBG(c,w,h);
-  c.translate(pad-b[0],pad-b[1]);
-  for(const p of pieces) drawPiece(c,p,performance.now());
-  const a=document.createElement('a');
-  const d=new Date();
-  const two=n=>String(n).padStart(2,'0');
-  a.download=`plop-${two(d.getMonth()+1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}.png`;
-  a.href=oc.toDataURL('image/png');
-  a.click();
-  showToast('已存圖');
-});
 const clearBtn=document.getElementById('clearBtn');
 let clearArm=null;
 clearBtn.addEventListener('click',()=>{
@@ -1249,8 +1228,9 @@ function refillDrop(){
 // ---------- 模式 / 疊色 / 風格 / 背景 ----------
 const modeBtn=document.getElementById('modeBtn');
 const moreBtn=document.getElementById('moreBtn');
-const blendBtn=document.getElementById('blendBtn');
+const skinPrevBtn=document.getElementById('skinPrevBtn');
 const skinBtn=document.getElementById('skinBtn');
+const skinNextBtn=document.getElementById('skinNextBtn');
 const bgBtn=document.getElementById('bgBtn');
 function relayout(){
   trayTop = trayVisible() ? H-TRAY_H : H;
@@ -1262,8 +1242,6 @@ function relayout(){
 function updateBtns(){
   modeBtn.textContent = mode==='rand' ? '隨機盤' : '自由制';
   moreBtn.style.display = mode==='rand' ? '' : 'none';   // 自由制有塊盤，不需要補料
-  blendBtn.textContent='疊色';
-  blendBtn.classList.toggle('on',blend);
   cv.classList.toggle('multiply',blend);
   skinBtn.textContent=SKINS[skinKey].label;
   bgBtn.textContent=BGS[bgKey].label;
@@ -1282,19 +1260,16 @@ lookBtn.addEventListener('click',()=>{
   lookBtn.classList.toggle('on',open);
 });
 document.getElementById('undoBtn').addEventListener('click',doUndo);
-blendBtn.addEventListener('click',()=>{
-  blend=SKINS[skinKey].blend && SKINS[skinKey].blend.mode==='multiply' ? true : !blend;
+function changeSkin(step){
+  skinKey=SKIN_ORDER[(SKIN_ORDER.indexOf(skinKey)+step+SKIN_ORDER.length)%SKIN_ORDER.length];
+  blend=!!(SKINS[skinKey].blend && SKINS[skinKey].blend.mode==='multiply');
   if(blend){                 // 進疊色：全部拆成單塊（重疊自由）
     for(const p of pieces) p.gid=gidSeq++;
   }
   updateBtns(); saveState(); dirty=true;
-});
-skinBtn.addEventListener('click',()=>{
-  skinKey=SKIN_ORDER[(SKIN_ORDER.indexOf(skinKey)+1)%SKIN_ORDER.length];
-  blend=!!(SKINS[skinKey].blend && SKINS[skinKey].blend.mode==='multiply');
-  if(blend) for(const p of pieces) p.gid=gidSeq++;
-  updateBtns(); saveState(); dirty=true;
-});
+}
+skinPrevBtn.addEventListener('click',()=>changeSkin(-1));
+skinNextBtn.addEventListener('click',()=>changeSkin(1));
 bgBtn.addEventListener('click',()=>{
   bgKey=BG_ORDER[(BG_ORDER.indexOf(bgKey)+1)%BG_ORDER.length];
   updateBtns(); saveState(); dirty=true;
@@ -1318,7 +1293,7 @@ function loadState(){
     if(st.mode==='free'||st.mode==='rand') mode=st.mode;
     else if(st.mode==='tray') mode='free';   // 舊版一盤制 → 自由制
     if(SKINS[st.skin]) skinKey=st.skin;
-    blend = st.blend===true || !!(SKINS[skinKey].blend && SKINS[skinKey].blend.mode==='multiply');
+    blend = !!(SKINS[skinKey].blend && SKINS[skinKey].blend.mode==='multiply');
     if(BGS[st.bg]) bgKey=st.bg;
     colorSeq=st.colorSeq||0;
     if(Array.isArray(st.pieces)){
