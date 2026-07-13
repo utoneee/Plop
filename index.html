@@ -79,7 +79,7 @@
 <script>
 'use strict';
 /* ============================================================
-   Plop 黏土拼桌 v6
+   Plop 黏土拼桌 v10
    純平面拼擺小品：拖曳、邊對邊磁吸、群組拖動、長按拆件、
    推擠防重疊、存 PNG、清空。
    v2：點一下旋轉 45°、有機形平滑曲線（凹多邊形以凸部件做碰撞）。
@@ -93,6 +93,16 @@
    刪長條、長方高切半（156×39）、皮膚/背景收進「外觀」第二列。
    v6：疊色再修——蒙德里安白轉深灰（blendSwap）、移除亮色描邊
    （黑白灰疊色搭深背景即可）；新增小方（39×39）與拱橋（半圓環）。
+   v7：塊盤改橫向捲動（井格最窄 64、塞不下不再縮小）——橫拖捲動、
+   上拉取塊、點一下取塊放桌；夠寬時維持原本按下即取。
+   v8：尺寸系統總體檢（39 半格制）——拱門 117×117（門洞不動）、
+   半圓直徑 117、拱橋外 58.5/內 36（門頂/圓＋2px 間隙）、圓 r34；
+   存圖檔名去年份。
+   v9：梯形（底117/頂78/高39）與等腰（底78/高117）上格；新增大圓
+   （直徑117）；弧吸附——門頂/圓靠近橋洞自動同心（修嵌合小歪）。
+   v10：梯形改直角梯形（斜邊集中單側＝45°，可咬三角/平四）；
+   平四上格（邊117/高39/偏移39）——「等腰矩形」＝平四，v9 誤改
+   等腰三角形已還原（60×116）。
    ============================================================ */
 
 // ---------- 基本常數 ----------
@@ -102,6 +112,7 @@ const LONGPRESS_MS = 450;   // 長按拆件時間
 const SNAP_PERP    = 15;    // 邊吸附：垂直距離閾值
 const SNAP_END     = 14;    // 邊吸附：端點對齊閾值
 const SNAP_OVERLAP = 12;    // 邊吸附：投影重疊最小值
+const SNAP_ARC     = 12;    // 弧吸附：兩圓心距離閾值（門頂/圓 嵌 橋洞）
 const PULL_GAP     = 12;    // 有機形貼靠：釋放時的吸引距離
 const CONTACT_EPS  = 2;     // 判定「貼著」的間隙
 const MATE_EPS     = 1.8;   // 判定「邊已咬合」的共線容差
@@ -167,17 +178,19 @@ function allEdges(pts){
   for(let i=0;i<pts.length;i++) e.push([i,(i+1)%pts.length]);
   return e;
 }
-// 拱門：外框 120×90，門洞寬 68、直壁到 y=11、頂上半圓 r=34
+// 拱門：外框 117×117（＝方+小方，兩軸都在 39 半格上），門洞寬 68、直壁到 y=24.5、頂上半圓 r=34
+// 門洞尺寸不動＝門（68×68）照樣剛好塞；頂梁厚 49
 function archPts(){
-  const pts=[[-60,-45],[60,-45],[60,45],[34,45],[34,11]];
+  const pts=[[-58.5,-58.5],[58.5,-58.5],[58.5,58.5],[34,58.5],[34,24.5]];
   for(let i=1;i<8;i++){
     const t=-i/8*Math.PI;                        // 0 → −π（往上繞過門頂）
-    pts.push([34*Math.cos(t), 11+34*Math.sin(t)]);
+    pts.push([34*Math.cos(t), 24.5+34*Math.sin(t)]);
   }
-  pts.push([-34,11],[-34,45],[-60,45]);
+  pts.push([-34,24.5],[-34,58.5],[-58.5,58.5]);
   return pts;
 }
-const SEMI_CY = 4*68/(3*Math.PI);                // 半圓弧心的局部 y 偏移
+const SEMI_R  = 58.5;                            // 半圓半徑（直徑 117＝方+小方）
+const SEMI_CY = 4*SEMI_R/(3*Math.PI);            // 半圓弧心的局部 y 偏移
 // 門：寬 68、直壁高 34、頂半圓 r=34（總高 68 ＝ 拱門門洞尺寸，塞得進去）
 function doorPts(){
   const pts=[];
@@ -188,17 +201,19 @@ function doorPts(){
   pts.push([34,34],[-34,34]);
   return pts;
 }
-// 拱橋：半圓環（外 r=68＝半圓、內 r=34＝門/拱門洞→門塞得進橋洞），腳寬 34
-const BRIDGE_CY = 4*(68**3-34**3)/(3*Math.PI*(68**2-34**2));   // 半圓環形心 y 偏移（≈33.7）
+// 拱橋：半圓環（外 r=58.5＝半圓、內 r=36＝門頂/圓 r34＋2px 間隙），腳寬 22.5
+// 間隙是功能必需：弧線沒有磁吸，零間隙會被碰撞系統彈開、永遠嵌不進去
+const BRIDGE_R1 = 58.5, BRIDGE_R2 = 36;
+const BRIDGE_CY = 4*(BRIDGE_R1**3-BRIDGE_R2**3)/(3*Math.PI*(BRIDGE_R1**2-BRIDGE_R2**2));  // 半圓環形心 y 偏移
 function bridgePts(){
   const pts=[];
   for(let i=0;i<=8;i++){                         // 外弧 左→頂→右
     const t=Math.PI - i/8*Math.PI;
-    pts.push([68*Math.cos(t), BRIDGE_CY-68*Math.sin(t)]);
+    pts.push([BRIDGE_R1*Math.cos(t), BRIDGE_CY-BRIDGE_R1*Math.sin(t)]);
   }
-  for(let i=0;i<=8;i++){                         // 內弧 右→頂→左（與門的外弧同取樣，能剛好互嵌）
+  for(let i=0;i<=8;i++){                         // 內弧 右→頂→左
     const t=i/8*Math.PI;
-    pts.push([34*Math.cos(t), BRIDGE_CY-34*Math.sin(t)]);
+    pts.push([BRIDGE_R2*Math.cos(t), BRIDGE_CY-BRIDGE_R2*Math.sin(t)]);
   }
   return pts;
 }
@@ -213,26 +228,27 @@ const SHAPES = {
   square:  { pts:rect(78,78),                  edges:'all', organic:false, label:'方' },
   squareS: { pts:rect(39,39),                  edges:'all', organic:false, label:'小方' }, // 邊＝半方塊（與格紋 39 同尺度）
   rectBig: { pts:rect(156,39),                 edges:'all', organic:false, label:'長方' }, // 寬＝兩方塊、高＝半方塊
-  para:    { pts:centerPts([[0,0],[118,0],[176,58],[58,58]]), edges:'all', organic:false, label:'平四' }, // 斜邊 45°（偏移＝高）
-  trap:    { pts:centerPts([[0,0],[130,0],[98,-32],[32,-32]]), edges:'all', organic:false, label:'梯形' },
+  para:    { pts:centerPts([[0,0],[117,0],[156,39],[39,39]]), edges:'all', organic:false, label:'平四' }, // 邊117/高39/偏移39＝45°；橫向總跨 156＝兩方塊，全上格
+  trap:    { pts:centerPts([[0,0],[117,0],[117,-39],[39,-39]]), edges:'all', organic:false, label:'梯形' }, // 直角梯形（用戶圖2）：底117/頂78/高39 全在格上，斜邊集中單側＝45° 可咬三角/平四
   stair:   { pts:[[-39,-39],[-13,-39],[-13,-13],[13,-13],[13,13],[39,13],[39,39],[-39,39]],
              parts:[ [[-39,-39],[-13,-39],[-13,39],[-39,39]],
                      [[-13,-13],[13,-13],[13,39],[-13,39]],
                      [[13,13],[39,13],[39,39],[13,39]] ],
              edges:'all', organic:false, label:'階梯' },
   arch:    { pts:archPts(),
-             parts:[ [[-60,-45],[-34,-45],[-34,45],[-60,45]],
-                     [[34,-45],[60,-45],[60,45],[34,45]],
-                     [[-34,-45],[34,-45],[34,-23],[-34,-23]] ],
+             parts:[ [[-58.5,-58.5],[-34,-58.5],[-34,58.5],[-58.5,58.5]],
+                     [[34,-58.5],[58.5,-58.5],[58.5,58.5],[34,58.5]],
+                     [[-34,-58.5],[34,-58.5],[34,-9.5],[-34,-9.5]] ],
              edges:[[0,1],[1,2],[2,3],[3,4],[12,13],[13,14],[14,0]],
              organic:false, label:'拱門',
              trace:c=>{
-               c.moveTo(-60,-45); c.lineTo(60,-45); c.lineTo(60,45);
-               c.lineTo(34,45); c.lineTo(34,11);
-               c.arc(0,11,34,0,Math.PI,true);
-               c.lineTo(-34,45); c.lineTo(-60,45); c.closePath();
+               c.moveTo(-58.5,-58.5); c.lineTo(58.5,-58.5); c.lineTo(58.5,58.5);
+               c.lineTo(34,58.5); c.lineTo(34,24.5);
+               c.arc(0,24.5,34,0,Math.PI,true);
+               c.lineTo(-34,58.5); c.lineTo(-58.5,58.5); c.closePath();
              } },
   door:    { pts:doorPts(), edges:[[8,9],[9,10],[10,0]], organic:false, label:'門',
+             arcPlug:{x:0,y:0,r:34},             // 門頂凸弧（可嵌進橋洞）
              trace:c=>{
                c.moveTo(34,0); c.lineTo(34,34); c.lineTo(-34,34); c.lineTo(-34,0);
                c.arc(0,0,34,Math.PI,Math.PI*2,false);
@@ -242,19 +258,23 @@ const SHAPES = {
              // 8 個梯形部件沿弧分段（凹形不能整塊做 SAT）；索引對映：外弧 i、內弧同角度 17-i
              parts:Array.from({length:8},(_,i)=>[BRIDGE[i],BRIDGE[i+1],BRIDGE[16-i],BRIDGE[17-i]]),
              edges:[[8,9],[17,0]], organic:false, label:'拱橋',
+             arcSocket:{x:0,y:BRIDGE_CY,r:BRIDGE_R2},   // 橋洞凹弧（收門頂/圓）
              trace:c=>{
-               c.arc(0,BRIDGE_CY,68,Math.PI,Math.PI*2,false);   // 外弧 左→頂→右
-               c.lineTo(34,BRIDGE_CY);
-               c.arc(0,BRIDGE_CY,34,Math.PI*2,Math.PI,true);    // 內弧 右→頂→左
+               c.arc(0,BRIDGE_CY,BRIDGE_R1,Math.PI,Math.PI*2,false);   // 外弧 左→頂→右
+               c.lineTo(BRIDGE_R2,BRIDGE_CY);
+               c.arc(0,BRIDGE_CY,BRIDGE_R2,Math.PI*2,Math.PI,true);    // 內弧 右→頂→左
                c.closePath();
              } },
-  semi:    { pts:semicircle(68,12),            edges:[[12,0]], organic:false, label:'半圓',
+  semi:    { pts:semicircle(SEMI_R,12),        edges:[[12,0]], organic:false, label:'半圓',
              trace:c=>{
-               c.arc(0,SEMI_CY,68,Math.PI,Math.PI*2,false);
+               c.arc(0,SEMI_CY,SEMI_R,Math.PI,Math.PI*2,false);
                c.closePath();
              } },
-  circle:  { pts:blob(40,40,24,0,0,0,0),       edges:[], organic:true, label:'圓',
-             trace:c=>{ c.arc(0,0,40,0,Math.PI*2); c.closePath(); } },
+  circle:  { pts:blob(34,34,24,0,0,0,0),       edges:[], organic:true, label:'圓',  // 直徑 68＝門寬；塞橋洞留 2px 間隙
+             arcPlug:{x:0,y:0,r:34},
+             trace:c=>{ c.arc(0,0,34,0,Math.PI*2); c.closePath(); } },
+  circleBig:{ pts:blob(SEMI_R,SEMI_R,28,0,0,0,0), edges:[], organic:true, label:'大圓', // 直徑 117＝方+小方＝半圓×2
+             trace:c=>{ c.arc(0,0,SEMI_R,0,Math.PI*2); c.closePath(); } },
   pebble:  { pts:blob(56,45,22,0.05,0.7,0.03,2.1), edges:[], organic:true, label:'鵝卵石' },
   bean:    { pts:blob(66,37,22,0.06,2.6,0.03,0.4), edges:[], organic:true, label:'豆' },
 };
@@ -268,7 +288,7 @@ for(const k in SHAPES){
   for(const p of s.pts){ x0=Math.min(x0,p[0]); y0=Math.min(y0,p[1]); x1=Math.max(x1,p[0]); y1=Math.max(y1,p[1]); }
   s.bbox=[x0,y0,x1,y1];
 }
-const TRAY_ORDER=['triBig','triSmall','isoTri','square','squareS','rectBig','para','trap','stair','arch','door','bridge','semi','circle','pebble','bean'];
+const TRAY_ORDER=['triBig','triSmall','isoTri','square','squareS','rectBig','para','trap','stair','arch','door','bridge','semi','circle','circleBig','pebble','bean'];
 
 // ---------- 狀態 ----------
 let W=0,H=0,DPR=1, trayTop=0;
@@ -560,19 +580,24 @@ function resolveCollisions(dragGid){
 }
 
 // ---------- 塊盤 ----------
+let trayScroll=0, trayScrollMin=0;   // 橫向捲動位移（≤0）與下限；夠寬時恆為 0
 function layoutWells(){
   wells=[];
-  if(!trayVisible()) return;
+  if(!trayVisible()){ trayScroll=0; trayScrollMin=0; return; }
   const n=TRAY_ORDER.length;
   const gap=4;
-  const w=Math.min(96,(W-20-gap*(n-1))/n);
+  const avail=W-20;
+  const w=Math.max(64, Math.min(96,(avail-gap*(n-1))/n));  // 最窄 64：塞不下改捲動，不再縮小
   const total=w*n+gap*(n-1);
-  let x=(W-total)/2;
+  trayScrollMin=Math.min(0, avail-total);
+  trayScroll=Math.max(trayScrollMin, Math.min(0, trayScroll));
+  let x = total<=avail ? (W-total)/2 : 10;
   for(const key of TRAY_ORDER){
     wells.push({shape:key, x, y:trayTop+10, w, h:TRAY_H-24});
     x+=w+gap;
   }
 }
+function trayScrollable(){ return trayScrollMin<0; }
 
 // ---------- 復原（每個會動到塊的手勢前存一張快照） ----------
 let undoStack=[];
@@ -593,6 +618,7 @@ function doUndo(){
 // ---------- 拖曳 / 長按 ----------
 let drag=null;   // {gid, list, base:[[x,y]..], sx, sy, snap:{dx,dy}, overTray, pointerId}
 let press=null;  // {piece, sx, sy, timer, pointerId}
+let trayPan=null;// 塊盤手勢待判：{sx, sy, scroll0, well, mode:null|'scroll'}（塊盤可捲動時才用）
 
 function topPieceAt(x,y){
   for(let i=pieces.length-1;i>=0;i--){
@@ -611,6 +637,31 @@ function bringGroupToTop(gid){
 function trayVisible(){ return mode==='free'; }
 // 收回/刪除區的上緣：自由制＝塊盤；隨機盤＝拖曳中才出現的底部刪除帶
 function recallY(){ return trayVisible() ? trayTop : H-DEL_H; }
+
+// 弧吸附：拖曳群組的 plug（凸弧）對場上 socket（凹弧）或反向，圓心夠近就對齊成同心
+function arcCenter(feat,p){ return xformPts([[feat.x,feat.y]],p)[0]; }
+function findArcSnap(dragList){
+  const ids=new Set(dragList.map(p=>p.id));
+  let best=null;
+  for(const dp of dragList){
+    const ds=SHAPES[dp.shape];
+    if(!ds.arcPlug && !ds.arcSocket) continue;
+    for(const op of pieces){
+      if(ids.has(op.id)) continue;
+      const os=SHAPES[op.shape];
+      let a=null,b=null;                       // a=拖曳側特徵圓心、b=目標側
+      if(ds.arcPlug && os.arcSocket && os.arcSocket.r>=ds.arcPlug.r){
+        a=arcCenter(ds.arcPlug,dp); b=arcCenter(os.arcSocket,op);
+      }else if(ds.arcSocket && os.arcPlug && ds.arcSocket.r>=os.arcPlug.r){
+        a=arcCenter(ds.arcSocket,dp); b=arcCenter(os.arcPlug,op);
+      }else continue;
+      const dx=b[0]-a[0], dy=b[1]-a[1];
+      const d=Math.hypot(dx,dy);
+      if(d<=SNAP_ARC && (!best || d<best.d)) best={dx,dy,d};
+    }
+  }
+  return best;
+}
 
 function startDrag(gid,px,py){
   bringGroupToTop(gid);
@@ -648,6 +699,9 @@ function applyDrag(px,py){
           if(Math.abs(d)>0.01 && Math.abs(d)<=SNAP_PERP+SNAP_END)
             moveGroup(drag.list,s1.tx*d,s1.ty*d);
         }
+      }else{
+        const a1=findArcSnap(drag.list);   // 沒吸到直邊才試弧嵌合（門頂/圓 ↔ 橋洞同心）
+        if(a1){ moveGroup(drag.list,a1.dx,a1.dy); drag.snap=a1; }
       }
     }
     clampGroup(drag.list);
@@ -732,9 +786,16 @@ cv.addEventListener('pointerdown',ev=>{
   cv.setPointerCapture(ev.pointerId);
   const x=ev.clientX, y=ev.clientY;
   if(y>trayTop){
+    const wx=x-trayScroll;                       // 命中測試用未捲動座標
+    let hit=null;
     for(const w of wells){
-      if(x>=w.x&&x<=w.x+w.w&&y>=w.y&&y<=w.y+w.h){ spawnFromWell(w,x,y); return; }
+      if(wx>=w.x&&wx<=w.x+w.w&&y>=w.y&&y<=w.y+w.h){ hit=w; break; }
     }
+    if(!trayScrollable()){                       // 夠寬（iPad 橫放）：維持原本按下即取塊
+      if(hit) spawnFromWell(hit,x,y);
+      return;
+    }
+    trayPan={sx:x, sy:y, scroll0:trayScroll, well:hit, mode:null};
     return;
   }
   const p=topPieceAt(x,y);
@@ -757,6 +818,27 @@ cv.addEventListener('pointerdown',ev=>{
 cv.addEventListener('pointermove',ev=>{
   if(ev.pointerId!==activePointer) return;
   const x=ev.clientX, y=ev.clientY;
+  if(trayPan){
+    const dx=x-trayPan.sx, dy=y-trayPan.sy;
+    if(!trayPan.mode){
+      if(Math.abs(dx)>SLOP && Math.abs(dx)>=Math.abs(dy)){
+        trayPan.mode='scroll';                   // 橫向優先 → 捲塊盤
+      }else if(trayPan.well && dy<-SLOP){        // 從井格往上拉 → 取塊起拖
+        const w=trayPan.well, sx=trayPan.sx, sy=trayPan.sy;
+        trayPan=null;
+        spawnFromWell(w,sx,sy);
+        applyDrag(x,y);
+        return;
+      }else if(!trayPan.well && Math.hypot(dx,dy)>SLOP){
+        trayPan.mode='scroll';                   // 空白處任意拖 → 也當捲動
+      }
+    }
+    if(trayPan && trayPan.mode==='scroll'){
+      trayScroll=Math.max(trayScrollMin, Math.min(0, trayPan.scroll0+dx));
+      dirty=true;
+    }
+    return;
+  }
   if(press){
     if(Math.hypot(x-press.sx,y-press.sy)>SLOP){
       clearTimeout(press.timer);
@@ -794,6 +876,11 @@ function rotateGroup(piece){
 cv.addEventListener('pointerup',ev=>{
   if(ev.pointerId!==activePointer) return;
   activePointer=null;
+  if(trayPan){
+    const tp=trayPan; trayPan=null;
+    if(!tp.mode && tp.well){ spawnFromWell(tp.well,tp.sx,tp.sy); endDrag(); }  // 點一下＝取一塊放桌上（同原行為）
+    return;
+  }
   if(press){
     clearTimeout(press.timer);
     const p=press.piece; press=null;
@@ -805,6 +892,7 @@ cv.addEventListener('pointerup',ev=>{
 cv.addEventListener('pointercancel',ev=>{
   if(ev.pointerId!==activePointer) return;
   activePointer=null;
+  trayPan=null;
   if(press){ clearTimeout(press.timer); press=null; }
   if(drag) endDrag();
 });
@@ -992,7 +1080,17 @@ function draw(){
       ctx.textAlign='center';
       ctx.fillText('放開收回', W/2, trayTop+16);
     }
+    ctx.save();
+    ctx.translate(trayScroll,0);
     for(const w of wells) drawWellIcon(ctx,w);
+    ctx.restore();
+    if(trayScrollable()){                        // 捲動指示條（底部細線）
+      const avail=W-20, total=avail-trayScrollMin;
+      const thumbW=avail*avail/total;
+      const tx=10 + (-trayScroll)/(-trayScrollMin)*(avail-thumbW);
+      ctx.fillStyle='rgba(107,95,78,0.25)';
+      ctx.fillRect(tx, trayTop+TRAY_H-6, thumbW, 3);
+    }
   }else if(drag && drag.armRecall){
     // 隨機盤：拖曳中底部出現刪除帶（＝垃圾桶）
     ctx.fillStyle = drag.overTray ? 'rgba(201,133,111,0.30)' : 'rgba(201,133,111,0.12)';
@@ -1033,7 +1131,7 @@ document.getElementById('saveBtn').addEventListener('click',()=>{
   const a=document.createElement('a');
   const d=new Date();
   const two=n=>String(n).padStart(2,'0');
-  a.download=`plop-${d.getFullYear()}${two(d.getMonth()+1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}.png`;
+  a.download=`plop-${two(d.getMonth()+1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}.png`;
   a.href=oc.toDataURL('image/png');
   a.click();
   showToast('已存圖');
