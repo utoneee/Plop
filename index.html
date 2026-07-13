@@ -130,14 +130,16 @@ const SKINS = {
   risograph: { label:'Risograph',   palette:['#ff3b9d','#28c8d4','#f7d842','#ffffff'],
                stroke:null, strokeW:0, shadow:false, texture:'riso', opaqueInk:true,
                blend:{mode:'multiply',allowStack:true} },
-  glassine:  { label:'Glassine',    palette:['#f2f5f1','#f2f5f1','#f2f5f1','#f2f5f1','#f2f5f1','#161616','#161616','#d40920','#1356a2','#f7d842'],
-               stroke:'#161616', strokeW:5, shadow:false, keepStroke:true,
+  glassine:  { label:'Glassine',    palette:['#d40920','#1356a2','#f7d842','#1b9e77','#7c4dff'],
+               stroke:'#101010', strokeW:7, shadow:false, keepStroke:true,
                blend:{mode:'multiply',allowStack:true} },
   mono:      { label:'Black & Gray', palette:['#ffffff','#d9d9d9','#8a8a8a','#4d4d4d','#1c1c1c'],
-               stroke:null, strokeW:0, shadow:false,
+               stroke:null, strokeW:0, shadow:true },
+  monoOverlay:{ label:'Black & Gray Overlay', palette:['#ffffff','#d9d9d9','#8a8a8a','#4d4d4d','#1c1c1c'],
+               stroke:null, strokeW:0, shadow:false, opaqueInk:true,
                blend:{mode:'multiply',allowStack:true} },
 };
-const SKIN_ORDER=['clay','mondrian','risograph','glassine','mono'];
+const SKIN_ORDER=['clay','mondrian','risograph','glassine','mono','monoOverlay'];
 // ---------- 背景 ----------
 const BGS = {
   paper:{ label:'紙',   base:'#ede8dd' },
@@ -1035,12 +1037,13 @@ function drawPiece(c,p,now){
     piecePath(c,p.shape,px,py,rot,sx,sy);
     c.clip();
     c.globalCompositeOperation='source-over';
-    c.globalAlpha*=0.12;
+    c.globalAlpha*=0.08;
     c.fillStyle=grain;
     c.fillRect(px-100,py-100,200,200);        // 紙纖維
+    c.globalAlpha=0.10;
     c.fillStyle='rgba(30,20,20,0.16)';
-    for(let y=py-100;y<py+100;y+=8) for(let x=px-100;x<px+100;x+=8){
-      c.beginPath(); c.arc(x,y,0.8,0,Math.PI*2); c.fill();
+    for(let y=py-100;y<py+100;y+=7) for(let x=px-100;x<px+100;x+=7){
+      c.beginPath(); c.arc(x,y,0.9,0,Math.PI*2); c.fill();
     }
     c.restore();
   }
