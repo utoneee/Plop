@@ -106,9 +106,9 @@ const SKINS = {
   retro:     { label:'復古', palette:['#C80A24','#EE7A20','#093B55','#33719E','#EBB65B','#F5F2E9','#888888'],
                stroke:null, strokeW:0, shadow:false },
 
-  retroBlend:{ label:'復古(疊印)', palette:['#C80A24','#EE7A20','#093B55','#33719E','#EBB65B','#F5F2E9','#888888'],
-               stroke:null, strokeW:0, shadow:false,
-               blend:{mode:'multiply',allowStack:true,alpha:0.85} },
+  retroBlend:{ label:'復古(疊印)', palette:['#C80A24','#EE7A20','#093B55','#33719E','#EBB65B','rgba(255,255,255,0.92)','#888888'],
+               stroke:null, strokeW:0, shadow:false, isHalfTrans:true,
+               blend:{mode:'multiply',allowStack:true,alpha:0.85} }
 
   pop:       { label:'剪紙',    palette:['#005cf5','#ff0080','#fcd400','#00c252','#ff5900','#ffffff','#1c1c1c'],
                stroke:null, strokeW:0, shadow:false, isPop:true },
