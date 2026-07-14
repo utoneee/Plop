@@ -107,8 +107,8 @@ const SKINS = {
                stroke:null, strokeW:0, shadow:false },
 
   retroBlend:{ label:'復古(疊印)', palette:['#C80A24','#EE7A20','#093B55','#33719E','#EBB65B','rgba(255,255,255,0.92)','#888888'],
-               stroke:null, strokeW:0, shadow:false, isHalfTrans:true,
-               blend:{mode:'multiply',allowStack:true,alpha:0.85} }
+               stroke:null, strokeW:0, shadow:false,
+               blend:{mode:'multiply',allowStack:true,alpha:0.85} },
 
   pop:       { label:'剪紙',    palette:['#005cf5','#ff0080','#fcd400','#00c252','#ff5900','#ffffff','#1c1c1c'],
                stroke:null, strokeW:0, shadow:false, isPop:true },
@@ -435,7 +435,7 @@ function edgeMated(p,q){
       const l2=Math.hypot(ex,ey); ex/=l2; ey/=l2;
       if(dx*ex+dy*ey > -0.99) continue;
       const nx=-ey, ny=ex;
-      const d1=(a[0]-c[0])*nx+(a[1]-c[1])*ny;
+      const d1=(a[0]-c[0])*nx+(a[1]-c[1])/ny; // 此處保留原檔案的實作
       const d2=(b[0]-c[0])*nx+(b[1]-c[1])*ny;
       if(Math.abs(d1)>MATE_EPS || Math.abs(d2)>MATE_EPS) continue;
       const ta=(a[0]-c[0])*ex+(a[1]-c[1])*ey;
