@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="icon-4.jpg">
 <link rel="icon" href="icon-4.jpg">
-<title>Plop｜黏土拼桌</title>
+<title>Plop｜幾何拼塊</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   html, body {
@@ -59,9 +59,32 @@
     opacity:0; transition:opacity .35s; pointer-events:none; z-index:20;
   }
   #toast.show { opacity:1; }
+
+  #loader {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: #ede8dd; z-index: 100;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    transition: opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1), transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
+    pointer-events: none;
+  }
+  #loader.hide {
+    opacity: 0;
+    transform: scale(1.02);
+  }
+  #loaderText {
+    color: #6b5f4e; font-size: 14px; letter-spacing: 4px;
+    opacity: 0.75; animation: pulse 1.8s infinite ease-in-out;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.85; }
+  }
 </style>
 </head>
 <body>
+<div id="loader">
+  <div id="loaderText">顯影中，請稍候...</div>
+</div>
 <div id="brand">Plop</div>
 <div id="uiWrap">
 <div id="ui">
@@ -129,11 +152,7 @@ const SKINS = {
                stroke:null, strokeW:0, shadow:false,
                blend:{mode:'multiply',allowStack:true,alpha:0.85} },
 
-  glassine:  { label:'顯影',    palette:['#f4a6b9','#9fd8e6','#f5df86','#bce3c3','#c9b5ea'],
-               stroke:'#ffffff', strokeW:3, shadow:false, keepStroke:true,
-               blend:{mode:'multiply',allowStack:true,alpha:0.45} },
-
-  whiteGrad: { label:'漸層白',   palette:['rgba(255,255,255,1)'],
+  whiteGrad: { label:'空氣',   palette:['rgba(255,255,255,1)'],
                stroke:'rgba(255,255,255,0.4)', strokeW:1, shadow:false, isWhiteGrad:true,
                blend:{mode:'multiply',allowStack:true,alpha:1.0} },
 
@@ -141,20 +160,31 @@ const SKINS = {
                stroke:null, strokeW:0, shadow:false, isTech:true },
 
   mondrian:  { label:'點線面',    palette:['#f2f5f1','#f2f5f1','#f2f5f1','#f2f5f1','#f2f5f1','#161616','#161616','#d40920','#1356a2','#f7d842','#E1DCCA'],
-               stroke:'#161616', strokeW:5, shadow:false }
+               stroke:'#161616', strokeW:5, shadow:false },
+
+  void:      { label:'消隱', palette:['#ffffff','#d9d9d9','#8a8a8a','#4d4d4d','#1c1c1c'],
+               stroke:null, strokeW:0, shadow:false, isVoid:true },
+
+  glassineEmboss: { label:'顯影', palette:['#f4a6b9','#9fd8e6','#f5df86','#bce3c3','#c9b5ea'],
+               stroke:null, strokeW:0, shadow:false, isGlassineEmboss:true,
+               blend:{mode:'multiply',allowStack:true,alpha:0.45} }
 };
 
-const SKIN_ORDER=['mineral','retro','retroBlend','pop','popBlend','afternoon','humanity','monoBlend','glassine','whiteGrad','tech','mondrian'];
+const SKIN_ORDER=[
+  'mineral','retro','retroBlend','pop','popBlend','afternoon','humanity','monoBlend','whiteGrad','tech','mondrian',
+  'void','glassineEmboss'
+];
 
 const BGS = {
   paper:     { label:'紙質', base:'#ede8dd' },
+  paperHeavy:{ label:'紙紋', base:'#efe6d2' },
   grid:      { label:'格紋', base:'#f0ece1' },
   lightGray: { label:'淺灰', base:'#d2d2d2' },
   wood:      { label:'深灰', base:'#b4b4b4' },
   grayBlue:  { label:'灰藍', base:'#606b7a' },
   darkTech:  { label:'黑色', base:'#1a1a22' } 
 };
-const BG_ORDER=['paper','grid','lightGray','wood','grayBlue','darkTech'];
+const BG_ORDER=['paper','paperHeavy','grid','lightGray','wood','grayBlue','darkTech'];
 const TRAY_BG = '#e3dbca';
 
 function centroidOf(pts){
@@ -300,6 +330,7 @@ let gidSeq=1, idSeq=1, colorSeq=0;
 let mode='rand';            
 let blend=false;            
 let skinKey='mineral', bgKey='paper';
+let bgAutoDark=false; 
 let wells=[];
 let pushedAt=new Map();
 let dirty=true;
@@ -325,6 +356,7 @@ function worldPopPts(p) {
     return [q[0] + randX, q[1] + randY];
   });
 }
+
 function worldBBox(p){
   const pts=worldPts(p);
   let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
@@ -379,7 +411,7 @@ function gapInfo(A,B){
     const gap=Math.max(a1,b1)-Math.min(a2,b2);
     if(gap>g){
       g=gap;
-      const s=((cb[0]-ca[0])*ax[0]+(cb[1]-ax[1])*ax[1])>=0 ? 1 : -1;
+      const s=((cb[0]-ca[0])*ax[0]+(cb[1]-ca[1])*ax[1])>=0 ? 1 : -1;
       gax=[ax[0]*s, ax[1]*s];
     }
   }
@@ -435,7 +467,7 @@ function edgeMated(p,q){
       const l2=Math.hypot(ex,ey); ex/=l2; ey/=l2;
       if(dx*ex+dy*ey > -0.99) continue;
       const nx=-ey, ny=ex;
-      const d1=(a[0]-c[0])*nx+(a[1]-c[1])/ny; // 此處保留原檔案的實作
+      const d1=(a[0]-c[0])*nx+(a[1]-c[1])*ny; 
       const d2=(b[0]-c[0])*nx+(b[1]-c[1])*ny;
       if(Math.abs(d1)>MATE_EPS || Math.abs(d2)>MATE_EPS) continue;
       const ta=(a[0]-c[0])*ex+(a[1]-c[1])*ey;
@@ -599,14 +631,14 @@ function trayScrollable(){ return trayScrollMin<0; }
 
 let undoStack=[];
 function pushUndo(){
-  undoStack.push(pieces.map(p=>({shape:p.shape,ci:p.ci,x:p.x,y:p.y,rot:p.rot||0,gid:p.gid,risoType:p.risoType})));
+  undoStack.push(pieces.map(p=>({shape:p.shape,ci:p.ci,x:p.x,y:p.y,rot:p.rot||0,gid:p.gid})));
   if(undoStack.length>30) undoStack.shift();
 }
 function doUndo(){
   if(drag||press) return;
   if(!undoStack.length){ showToast('沒有可復原的'); return; }
   const snap=undoStack.pop();
-  pieces=snap.map(r=>({id:idSeq++,shape:r.shape,ci:r.ci,x:r.x,y:r.y,rot:r.rot,gid:r.gid,anim:null,floating:false,risoType:r.risoType||'dot'}));
+  pieces=snap.map(r=>({id:idSeq++,shape:r.shape,ci:r.ci,x:r.x,y:r.y,rot:r.rot,gid:r.gid,anim:null,floating:false}));
   if(blend) for(const p of pieces) p.gid=gidSeq++;
   pushedAt.clear();
   saveState(); dirty=true;
@@ -682,7 +714,10 @@ function applyDrag(px,py){
   
   if(!drag.overTray){
     drag.snap=null;
-    if(!blend){
+    const currentSkin = SKINS[skinKey];
+    const skipPhysics = blend || currentSkin.isVoid;
+    
+    if(!skipPhysics){
       const s1=findEdgeSnap(drag.list);
       if(s1){
         moveGroup(drag.list,s1.dx,s1.dy);
@@ -699,7 +734,7 @@ function applyDrag(px,py){
       }
     }
     clampGroup(drag.list);
-    if(!blend) resolveCollisions(drag.gid);
+    if(!skipPhysics) resolveCollisions(drag.gid);
   }
   dirty=true;
 }
@@ -711,7 +746,11 @@ function endDrag(){
     saveState(); dirty=true;
     return;
   }
-  if(blend){
+  
+  const currentSkin = SKINS[skinKey];
+  const skipPhysics = blend || currentSkin.isVoid;
+
+  if(skipPhysics){
     const tb=performance.now();
     for(const p of d.list){ p.floating=false; p.anim={type:'drop',t0:tb}; }
     pushedAt.clear();
@@ -755,15 +794,13 @@ function endDrag(){
   saveState(); dirty=true;
 }
 
-const RISO_TYPES = ['dot', 'line', 'cross'];
 function spawnFromWell(well,px,py){
   pushUndo();
   const p={
     id:idSeq++, shape:well.shape,
     ci:colorSeq++,
     x:px, y:Math.min(py-46, trayTop-30),
-    rot:0, gid:gidSeq++, anim:null, floating:false,
-    risoType: RISO_TYPES[Math.floor(Math.random()*RISO_TYPES.length)]
+    rot:0, gid:gidSeq++, anim:null, floating:false
   };
   pieces.push(p);
   hintAlpha=0;
@@ -811,7 +848,7 @@ cv.addEventListener('pointermove',ev=>{
   if(ev.pointerId!==activePointer) return;
   const x=ev.clientX, y=ev.clientY;
   if(trayPan){
-    if (drag) return; // 拖曳積木時，不觸發托盤滾動
+    if (drag) return; 
     const dx=x-trayPan.sx, dy=y-trayPan.sy;
     if(!trayPan.mode){
       if(Math.abs(dx)>SLOP && Math.abs(dx)>=Math.abs(dy)){
@@ -850,7 +887,7 @@ function rotateGroup(piece){
   const list=groupPieces(piece.gid);
   const gb=groupBBox(list);
   const cx=(gb[0]+gb[2])/2, cy=(gb[1]+gb[3])/2;
-  const c = Math.SQRT1_2, s = Math.SQRT1_2; // 確保使用 const 宣告，防止 strict mode 報錯
+  const c = Math.SQRT1_2, s = Math.SQRT1_2; 
   const t0=performance.now();
   for(const p of list){
     p.anim={type:'spin', t0, fx:p.x, fy:p.y, fr:p.rot};
@@ -861,7 +898,11 @@ function rotateGroup(piece){
   }
   bringGroupToTop(piece.gid);
   clampGroup(list);
-  if(!blend) resolveCollisions(piece.gid);
+  
+  const currentSkin = SKINS[skinKey];
+  const skipPhysics = blend || currentSkin.isVoid;
+  if(!skipPhysics) resolveCollisions(piece.gid);
+  
   pushedAt.clear();
   saveState(); dirty=true;
 }
@@ -882,7 +923,23 @@ cv.addEventListener('pointerup',ev=>{
   if(drag) endDrag();
 });
 
-let grain=null, fineNoise=null, heavyFiber=null;
+function cancelInteraction(){
+  if(press){ clearTimeout(press.timer); press=null; }
+  trayPan=null;
+  if(drag){
+    clampGroup(drag.list);
+    for(const p of drag.list) p.floating=false;
+    drag=null;
+    saveState();
+  }
+  activePointer=null;
+  dirty=true;
+}
+cv.addEventListener('pointercancel', cancelInteraction);
+window.addEventListener('blur', cancelInteraction);
+
+let grain=null, fineNoise=null, heavyFiber=null, grainHeavy=null;
+
 function makeGrain(){
   const g=document.createElement('canvas');
   g.width=g.height=128;
@@ -934,6 +991,39 @@ function makeGrain(){
     gcHum.fill();
   }
   heavyFiber=ctx.createPattern(gHum,'repeat');
+
+  const gPaper=document.createElement('canvas');
+  gPaper.width=gPaper.height=200;
+  const gcPaper=gPaper.getContext('2d');
+
+  const imgPaper=gcPaper.createImageData(200,200);
+  for(let i=0;i<imgPaper.data.length;i+=4){
+    const v=190+Math.random()*70|0;
+    imgPaper.data[i]=imgPaper.data[i+1]=imgPaper.data[i+2]=v;
+    imgPaper.data[i+3]=Math.random()<0.55?22:0;
+  }
+  gcPaper.putImageData(imgPaper,0,0);
+
+  gcPaper.strokeStyle='rgba(107,95,78,0.16)';
+  for(let i=0;i<40;i++){
+    gcPaper.beginPath();
+    gcPaper.lineWidth=0.5+Math.random()*1.1;
+    let sx=Math.random()*200, sy=Math.random()*200;
+    gcPaper.moveTo(sx,sy);
+    gcPaper.bezierCurveTo(
+      sx+Math.random()*30-15, sy+Math.random()*30-15,
+      sx+Math.random()*60-30, sy+Math.random()*60-30,
+      sx+Math.random()*90-45, sy+Math.random()*90-45
+    );
+    gcPaper.stroke();
+  }
+  gcPaper.fillStyle='rgba(90,80,70,0.10)';
+  for(let i=0;i<26;i++){
+    gcPaper.beginPath();
+    gcPaper.arc(Math.random()*200, Math.random()*200, 0.5+Math.random()*1.1, 0, Math.PI*2);
+    gcPaper.fill();
+  }
+  grainHeavy=ctx.createPattern(gPaper,'repeat');
 }
 
 const bgPatterns={};
@@ -944,6 +1034,8 @@ function bgPattern(key){
   const tc=t.getContext('2d');
   if(key==='paper' || key==='lightGray' || key==='wood' || key==='grayBlue'){
     pat=grain;
+  }else if(key==='paperHeavy'){
+    pat=grainHeavy;
   }else if(key==='grid'){
     t.width=t.height=39;
     tc.strokeStyle='rgba(107,95,78,0.14)';
@@ -1066,7 +1158,12 @@ function drawPiece(c,p,now){
   let col=skin.palette[p.ci % skin.palette.length];
   
   c.save();
-  if(blend && !skin.isWhiteGrad){
+  
+  if (skin.isGlassineEmboss) {
+    col = BGS[bgKey].base; 
+  }
+
+  if(blend && !skin.isWhiteGrad && !skin.isGlassineEmboss){
     if(isVeryLightColor(col)){
       c.globalCompositeOperation='source-over';
     }else{
@@ -1114,7 +1211,7 @@ function drawPiece(c,p,now){
     c.fillRect(bbox[0]-10, bbox[1]-10, bbox[2]-bbox[0]+20, bbox[3]-bbox[1]+20);
     c.restore();
     c.restore();
-  } else if (skinKey !== 'glassine') {
+  } else if (!skin.isVoid && !skin.isGlassineEmboss) {
     piecePath(c,p.shape,px,py,rot,sx,sy);
     c.fillStyle=col;
     c.fill();
@@ -1130,8 +1227,28 @@ function drawPiece(c,p,now){
       c.restore();
     }
   }
+
+  // 顯影浮雕[cite: 1]
+  if (skin.isGlassineEmboss) {
+    c.save();
+    c.translate(px, py);
+    if (rot) c.rotate(rot);
+    c.scale(sx, sy);
+    
+    // 【修改點 2】：刪除所有陰影/高光浮雕（無 shadow 偏移、無多層 stroke），改用極簡純淨線條。
+    // 基於背景色動態調整線條明暗，確保視覺清晰度。
+    const useDarkStroke = (bgKey === 'paper' || bgKey === 'paperHeavy' || bgKey === 'grid' || bgKey === 'lightGray');
+    c.strokeStyle = useDarkStroke ? 'rgba(107, 95, 78, 0.45)' : 'rgba(255, 255, 255, 0.55)';
+    c.lineWidth = 1.6;
+    c.beginPath();
+    tracePath(c, SHAPES[p.shape]);
+    c.stroke();
+    
+    c.restore();
+  }
   
   c.shadowColor='transparent';
+  c.filter = 'none';
 
   if((!blend || skin.keepStroke || skin.isWhiteGrad) && skin.strokeW){
     if(blend && skin.keepStroke){
@@ -1164,25 +1281,96 @@ function drawWellIcon(c,well){
 function draw(){
   const now=performance.now();
   ctx.clearRect(0,0,W,H);
-  paintBG(ctx,W,H);
   
-  if(hintAlpha>0 && pieces.length===0 && trayVisible()){
-    ctx.fillStyle=`rgba(107,95,78,${0.4*hintAlpha})`;
-    ctx.font='15px -apple-system, "PingFang TC", sans-serif';
-    ctx.textAlign='center';
-    ctx.fillText('從下方拿一塊黏土開始', W/2, trayTop/2);
-    ctx.fillStyle=`rgba(107,95,78,${0.28*hintAlpha})`;
-    ctx.font='13px -apple-system, "PingFang TC", sans-serif';
-    ctx.fillText('點一下塊可旋轉', W/2, trayTop/2+24);
+  const isVoidMode = (skinKey === 'void' && pieces.length > 0);
+  
+  if (isVoidMode) {
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = W * DPR;
+    tempCanvas.height = H * DPR;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    
+    for (const p of pieces) {
+      tempCtx.save();
+      // 使用 XOR 達成重疊區域扣除，背景穿透的效果[cite: 1]
+      tempCtx.globalCompositeOperation = 'xor';
+      
+      let p_sx = 1, p_sy = 1;
+      let px = p.x, py = p.y, rot = p.rot || 0;
+      if (p.anim && p.anim.type === 'drop') {
+        const t = (now - p.anim.t0) / 160;
+        if (t < 1) {
+          const k = Math.sin(Math.PI * t) * (1 - t);
+          p_sx = 1 + 0.05 * k; p_sy = 1 - 0.07 * k;
+        }
+      }
+      
+      tempCtx.translate(px, py);
+      if (rot) tempCtx.rotate(rot);
+      tempCtx.scale(p_sx, p_sy);
+      tempCtx.beginPath();
+      tracePath(tempCtx, SHAPES[p.shape]);
+      
+      const bbox = SHAPES[p.shape].bbox;
+      const grad = tempCtx.createLinearGradient(bbox[0], bbox[1], bbox[2], bbox[3]);
+      const sidx = p.ci % 4;
+      if (sidx === 0) {
+        grad.addColorStop(0, '#ffffff'); // 白
+        grad.addColorStop(1, '#e2e2e2'); // 淺灰
+      } else if (sidx === 1) {
+        grad.addColorStop(0, '#1c1c1c'); // 黑
+        grad.addColorStop(1, '#4d4d4d'); // 深灰
+      } else if (sidx === 2) {
+        grad.addColorStop(0, '#d9d9d9'); // 淺中灰
+        grad.addColorStop(1, '#f2f2f2'); // 極淺灰
+      } else {
+        grad.addColorStop(0, '#4d4d4d'); // 深灰
+        grad.addColorStop(1, '#333333'); // 極深灰
+      }
+      
+      tempCtx.fillStyle = grad;
+      tempCtx.fill();
+
+      // 【修改點 1 (方案 B)】：消隱模式加入隨機微弱噪點，透過 ID 進行偏移，防重疊時過於呆板僵硬
+      tempCtx.globalCompositeOperation = 'source-atop';
+      tempCtx.globalAlpha = 0.06; 
+      const seedX = (p.id * 37) % 64;
+      const seedY = (p.id * 17) % 64;
+      tempCtx.translate(seedX - px, seedY - py); 
+      tempCtx.fillStyle = fineNoise;
+      tempCtx.fillRect(bbox[0]-10, bbox[1]-10, bbox[2]-bbox[0]+20, bbox[3]-bbox[1]+20);
+      
+      tempCtx.restore();
+    }
+    
+    paintBG(ctx, W, H);
+    ctx.drawImage(tempCanvas, 0, 0, W, H);
+  } else {
+    // 一般模式
+    paintBG(ctx,W,H);
+    
+    if(hintAlpha>0 && pieces.length===0 && trayVisible()){
+      ctx.fillStyle=`rgba(107,95,78,${0.4*hintAlpha})`;
+      ctx.font='15px -apple-system, "PingFang TC", sans-serif';
+      ctx.textAlign='center';
+      ctx.fillText('從下方拿一塊黏土開始', W/2, trayTop/2);
+      ctx.fillStyle=`rgba(107,95,78,${0.28*hintAlpha})`;
+      ctx.font='13px -apple-system, "PingFang TC", sans-serif';
+      ctx.fillText('點一下塊可旋轉', W/2, trayTop/2+24);
+    }
+    
+    for(const p of pieces){
+      if(drag && drag.overTray && p.gid===drag.gid) ctx.globalAlpha=0.35;
+      drawPiece(ctx,p,now);
+      ctx.globalAlpha=1;
+    }
   }
   
-  for(const p of pieces){
-    if(drag && drag.overTray && p.gid===drag.gid) ctx.globalAlpha=0.35;
-    drawPiece(ctx,p,now);
-    ctx.globalAlpha=1;
-  }
+  // 處理 顯影浮雕 的多層粉透疊合[cite: 1]
+  const isGlassineEmboss = (skinKey === 'glassineEmboss' && pieces.length > 1);
   
-  if((skinKey === 'glassine' || skinKey === 'whiteGrad') && pieces.length > 1){
+  if((skinKey === 'whiteGrad' || isGlassineEmboss) && pieces.length > 1){
     ctx.save();
     for(let i=0; i<pieces.length; i++){
       const p = pieces[i];
@@ -1217,14 +1405,27 @@ function draw(){
           piecePath(ctx, p.shape, p.x, p.y, p.rot||0, p_sx, p_sy);
           ctx.clip();
           
-          if(skinKey === 'glassine') {
+          if(isGlassineEmboss) {
             ctx.beginPath();
             piecePath(ctx, q.shape, q.x, q.y, q.rot||0, q_sx, q_sy);
-            const colQ = SKINS.glassine.palette[q.ci % SKINS.glassine.palette.length];
+            const colQ = SKINS.glassineEmboss.palette[q.ci % SKINS.glassineEmboss.palette.length];
             ctx.fillStyle = colQ;
             ctx.globalAlpha = 0.5;
             ctx.globalCompositeOperation = 'multiply';
             ctx.fill();
+            
+            // 【修改點 2】：疊合交錯處，同步去除浮雕陰影，僅描繪平整纖細的極簡交界邊線
+            ctx.save();
+            ctx.translate(q.x, q.y);
+            if (q.rot) ctx.rotate(q.rot);
+            ctx.scale(q_sx, q_sy);
+            const useDarkStroke = (bgKey === 'paper' || bgKey === 'paperHeavy' || bgKey === 'grid' || bgKey === 'lightGray');
+            ctx.strokeStyle = useDarkStroke ? 'rgba(107, 95, 78, 0.45)' : 'rgba(255, 255, 255, 0.55)';
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            tracePath(ctx, SHAPES[q.shape]);
+            ctx.stroke();
+            ctx.restore();
           } else {
             ctx.translate(q.x, q.y);
             if (q.rot) ctx.rotate(q.rot);
@@ -1340,19 +1541,28 @@ function scatterDrop() {
       x:80+Math.random()*Math.max(1,W-160),
       y:90+Math.random()*Math.max(1,H-200),
       rot:Math.floor(Math.random()*8)*(Math.PI/4),
-      gid:gidSeq++, anim:{type:'drop',t0}, floating:false,
-      risoType: RISO_TYPES[Math.floor(Math.random()*RISO_TYPES.length)]
+      gid:gidSeq++, anim:{type:'drop',t0}, floating:false
     });
   }
-  if(!blend) for(let i=0;i<6;i++) resolveCollisions(-1);
+  
+  const currentSkin = SKINS[skinKey];
+  const skipPhysics = blend || currentSkin.isVoid;
+  if(!skipPhysics) {
+    for(let i=0;i<6;i++) resolveCollisions(-1);
+  }
+  
   for(const g of new Set(pieces.map(p=>p.gid))) clampGroup(groupPieces(g));
   hintAlpha=0;
-  saveState(); // 確保隨機撒落後的狀態立即被記錄，重整網頁不丟失
+  saveState(); 
 }
 function refillDrop(){
   pushUndo();
   const n=3+Math.floor(Math.random()*3);
   const t0=performance.now();
+  
+  const currentSkin = SKINS[skinKey];
+  const skipPhysics = blend || currentSkin.isVoid;
+
   for(let i=0;i<n;i++){
     const shape=TRAY_ORDER[Math.floor(Math.random()*TRAY_ORDER.length)];
     const rot=Math.floor(Math.random()*8)*(Math.PI/4);
@@ -1371,21 +1581,23 @@ function refillDrop(){
       if(!best||ov<best.ov) best={x,y,ov};
       if(ov===0) break;
     }
-    const p={id:idSeq++,shape,ci:colorSeq++,x:best.x,y:best.y,rot,gid:gidSeq++,anim:{type:'drop',t0},floating:false,
-             risoType: RISO_TYPES[Math.floor(Math.random()*RISO_TYPES.length)]};
+    const p={id:idSeq++,shape,ci:colorSeq++,x:best.x,y:best.y,rot,gid:gidSeq++,anim:{type:'drop',t0},floating:false};
     pieces.push(p);
-    if(!blend) for(let it=0;it<6;it++){
-      let moved=false;
-      for(const q of pieces){
-        if(q===p) continue;
-        if(!bboxOverlap(worldBBox(p),worldBBox(q),1)) continue;
-        for(const pa of worldParts(p)) for(const qb of worldParts(q)){
-          const m=mtv(qb,pa);
-          if(m){ p.x+=m[0]; p.y+=m[1]; moved=true; }
+    
+    if(!skipPhysics){
+      for(let it=0;it<6;it++){
+        let moved=false;
+        for(const q of pieces){
+          if(q===p) continue;
+          if(!bboxOverlap(worldBBox(p),worldBBox(q),1)) continue;
+          for(const pa of worldParts(p)) for(const qb of worldParts(q)){
+            const m=mtv(qb,pa);
+            if(m){ p.x+=m[0]; p.y+=m[1]; moved=true; }
+          }
         }
+        clampGroup([p]);
+        if(!moved) break;
       }
-      clampGroup([p]);
-      if(!moved) break;
     }
   }
   hintAlpha=0;
@@ -1429,15 +1641,18 @@ document.getElementById('undoBtn').addEventListener('click',doUndo);
 function changeSkin(step){
   skinKey=SKIN_ORDER[(SKIN_ORDER.indexOf(skinKey)+step+SKIN_ORDER.length)%SKIN_ORDER.length];
   
-  blend=!!(SKINS[skinKey].blend && SKINS[skinKey].blend.mode==='multiply');
+  const currentSkin = SKINS[skinKey];
+  blend=!!(currentSkin.blend && currentSkin.blend.mode==='multiply');
   
   if (skinKey === 'tech') {
+    if (bgKey !== 'darkTech') bgAutoDark = true;
     bgKey = 'darkTech';
-  } else if (bgKey === 'darkTech') {
+  } else if (bgKey === 'darkTech' && bgAutoDark) {
     bgKey = 'paper';
+    bgAutoDark = false;
   }
 
-  if(blend){
+  if(blend || currentSkin.isVoid || currentSkin.isGlassineEmboss){
     for(const p of pieces) p.gid=gidSeq++;
   }
   updateBtns(); saveState(); dirty=true;
@@ -1446,15 +1661,16 @@ skinPrevBtn.addEventListener('click',()=>changeSkin(-1));
 skinNextBtn.addEventListener('click',()=>changeSkin(1));
 bgBtn.addEventListener('click',()=>{
   bgKey=BG_ORDER[(BG_ORDER.indexOf(bgKey)+1)%BG_ORDER.length];
+  bgAutoDark=false;
   updateBtns(); saveState(); dirty=true;
 });
 
 function saveState(){
   try{
     localStorage.setItem('plop-state',JSON.stringify({
-      mode, blend, skin:skinKey, bg:bgKey, colorSeq,
+      mode, blend, skin:skinKey, bg:bgKey, bgAutoDark, colorSeq,
       pieces:pieces.map(p=>({s:p.shape,ci:p.ci%12,x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,g:p.gid,
-                             r:((Math.round((p.rot||0)/(Math.PI/4))%8)+8)%8, risoType:p.risoType}))
+                             r:((Math.round((p.rot||0)/(Math.PI/4))%8)+8)%8}))
     }));
   }catch(e){}
 }
@@ -1471,8 +1687,10 @@ function loadState(){
       skinKey='mineral';
     }
     
-    blend = !!(SKINS[skinKey].blend && SKINS[skinKey].blend.mode==='multiply');
+    const currentSkin = SKINS[skinKey];
+    blend = !!(currentSkin.blend && currentSkin.blend.mode==='multiply');
     if(BGS[st.bg]) bgKey=st.bg;
+    bgAutoDark=!!st.bgAutoDark;
     colorSeq=st.colorSeq||0;
     if(Array.isArray(st.pieces)){
       const gmap=new Map();
@@ -1480,8 +1698,7 @@ function loadState(){
       for(const r of st.pieces){
         if(!SHAPES[r.s]) continue;
         if(!gmap.has(r.g)) gmap.set(r.g,gidSeq++);
-        pieces.push({id:idSeq++,shape:r.s,ci:r.ci,x:r.x,y:r.y,rot:(r.r||0)*(Math.PI/4),gid:gmap.get(r.g),anim:null,floating:false,
-                     risoType: r.risoType});
+        pieces.push({id:idSeq++,shape:r.s,ci:r.ci,x:r.x,y:r.y,rot:(r.r||0)*(Math.PI/4),gid:gmap.get(r.g),anim:null,floating:false});
         i++;
       }
       if(pieces.length) hintAlpha=0;
@@ -1504,12 +1721,22 @@ function resize(){
 window.addEventListener('resize',resize);
 document.addEventListener('gesturestart',e=>e.preventDefault());
 
-makeGrain();
-loadState();
-updateBtns();
-resize();
-if(mode==='rand' && pieces.length===0){ scatterDrop(); saveState(); }
-requestAnimationFrame(frame);
+window.addEventListener('load', () => {
+  requestAnimationFrame(() => {
+    makeGrain();
+    loadState();
+    updateBtns();
+    resize();
+    if(mode==='rand' && pieces.length===0){ scatterDrop(); saveState(); }
+    
+    requestAnimationFrame(frame);
+    
+    setTimeout(() => {
+      const loader = document.getElementById('loader');
+      if (loader) loader.classList.add('hide');
+    }, 200);
+  });
+});
 </script>
 </body>
 </html>
