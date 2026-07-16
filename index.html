@@ -268,6 +268,7 @@ const SHAPES = {
   rectBig: { pts:rect(156,39),                 edges:'all', organic:false, label:'長方' },
   para:    { pts:centerPts([[0,0],[117,0],[156,39],[39,39]]), edges:'all', organic:false, label:'平四' },
   trap:    { pts:centerPts([[0,0],[117,0],[117,-39],[39,-39]]), edges:'all', organic:false, label:'梯形' },
+  rightTrap: { pts:centerPts([[0,0],[117,0],[156,39],[0,39]]), edges:'all', organic:false, label:'直角梯形' },
   stair:   { pts:[[-39,-39],[-13,-39],[-13,-13],[13,-13],[13,13],[39,13],[39,39],[-39,39]],
              parts:[ [[-39,-39],[-13,-39],[-13,39],[-39,39]],
                      [[-13,-13],[13,-13],[13,39],[-13,39]],
@@ -325,7 +326,7 @@ for(const k in SHAPES){
   for(const p of s.pts){ x0=Math.min(x0,p[0]); y0=Math.min(y0,p[1]); x1=Math.max(x1,p[0]); y1=Math.max(y1,p[1]); }
   s.bbox=[x0,y0,x1,y1];
 }
-const TRAY_ORDER=['triBig','triSmall','isoTri','square','squareS','rectBig','para','trap','stair','arch','door','bridge','semi','circle','circleBig','pebble','bean'];
+const TRAY_ORDER=['triBig','triSmall','isoTri','square','squareS','rectBig','para','trap','rightTrap','stair','arch','door','bridge','semi','circle','circleBig','pebble','bean'];
 
 let W=0,H=0,DPR=1, trayTop=0;
 let pieces=[];              
@@ -468,7 +469,7 @@ function edgeMated(p,q){
       const c=wq[k], e=wq[l];
       let ex=e[0]-c[0], ey=e[1]-c[1];
       const l2=Math.hypot(ex,ey); ex/=l2; ey/=l2;
-      if(dx*ex+dy*ey > -0.99) continue;
+      if(Math.abs(dx*ex+dy*ey) < 0.99) continue;
       const nx=-ey, ny=ex;
       const d1=(a[0]-c[0])*nx+(a[1]-c[1])*ny; 
       const d2=(b[0]-c[0])*nx+(b[1]-c[1])*ny;
@@ -544,7 +545,7 @@ function findEdgeSnap(dragList,minScore){
           const c=wq[k], e=wq[l];
           let ex=e[0]-c[0], ey=e[1]-c[1];
           const l2=Math.hypot(ex,ey); ex/=l2; ey/=l2;
-          if(dx*ex+dy*ey > -0.985) continue;
+          if(Math.abs(dx*ex+dy*ey) < 0.985) continue;
           const nx=-ey, ny=ex;
           const mx=(a[0]+b[0])/2, my=(a[1]+b[1])/2;
           const dPerp=(mx-c[0])*nx+(my-c[1])*ny;
@@ -969,8 +970,6 @@ function makeGrain(){
   fineNoise=ctx.createPattern(gTech,'repeat');
 }
 
-// 將 CSS 尺寸的 tile canvas 依目前 DPR 建立高解析度來源，
-// 再用 pattern.setTransform 縮回 CSS 尺寸，確保線條銳利且不受 DPR 影響輸出大小。
 function createDprPattern(tileCanvas, cssW, cssH){
   const pat=ctx.createPattern(tileCanvas,'repeat');
   if(pat && pat.setTransform){
@@ -981,7 +980,6 @@ function createDprPattern(tileCanvas, cssW, cssH){
   return pat;
 }
 
-// 暖白磨石子：低密度隨機碎石，圓潤多邊形
 function makeTerrazzoPattern(){
   const cssSize=150;
   const t=document.createElement('canvas');
@@ -1035,7 +1033,6 @@ function bgPattern(key){
   return pat;
 }
 
-// 晨霧晚霞 / 白夜消隱：對角漸層 + 磨砂玻璃噪點
 function renderGradientFrostBG(w,h,colorA,colorB){
   const cvs=document.createElement('canvas');
   cvs.width=Math.max(1,Math.ceil(w*DPR));
@@ -1246,15 +1243,12 @@ function drawPiece(c,p,now){
     }
   }
 
-  // 顯影[cite: 1]
   if (skin.isGlassineEmboss) {
     c.save();
     c.translate(px, py);
     if (rot) c.rotate(rot);
     c.scale(sx, sy);
     
-    // 【修改點 2】：刪除所有陰影/高光浮雕（無 shadow 偏移、無多層 stroke），改用極簡純淨線條。
-    // 基於背景色動態調整線條明暗，確保視覺清晰度。
     const useDarkStroke = (bgKey === 'paper' || bgKey === 'grid' || bgKey === 'lightGray' || bgKey === 'terrazzo' || bgKey === 'dawn' || bgKey === 'night');
     c.strokeStyle = useDarkStroke ? 'rgba(107, 95, 78, 0.45)' : 'rgba(255, 255, 255, 0.55)';
     c.lineWidth = 1.6;
@@ -1311,7 +1305,6 @@ function draw(){
     
     for (const p of pieces) {
       tempCtx.save();
-      // 使用 XOR 達成重疊區域扣除，背景穿透的效果[cite: 1]
       tempCtx.globalCompositeOperation = 'xor';
       
       let p_sx = 1, p_sy = 1;
@@ -1334,23 +1327,22 @@ function draw(){
       const grad = tempCtx.createLinearGradient(bbox[0], bbox[1], bbox[2], bbox[3]);
       const sidx = p.ci % 4;
       if (sidx === 0) {
-        grad.addColorStop(0, '#ffffff'); // 白
-        grad.addColorStop(1, '#e2e2e2'); // 淺灰
+        grad.addColorStop(0, '#ffffff'); 
+        grad.addColorStop(1, '#e2e2e2'); 
       } else if (sidx === 1) {
-        grad.addColorStop(0, '#1c1c1c'); // 黑
-        grad.addColorStop(1, '#4d4d4d'); // 深灰
+        grad.addColorStop(0, '#1c1c1c'); 
+        grad.addColorStop(1, '#4d4d4d'); 
       } else if (sidx === 2) {
-        grad.addColorStop(0, '#d9d9d9'); // 淺中灰
-        grad.addColorStop(1, '#f2f2f2'); // 極淺灰
+        grad.addColorStop(0, '#d9d9d9'); 
+        grad.addColorStop(1, '#f2f2f2'); 
       } else {
-        grad.addColorStop(0, '#4d4d4d'); // 深灰
-        grad.addColorStop(1, '#333333'); // 極深灰
+        grad.addColorStop(0, '#4d4d4d'); 
+        grad.addColorStop(1, '#333333'); 
       }
       
       tempCtx.fillStyle = grad;
       tempCtx.fill();
 
-      // 【修改點 1 (方案 B)】：消隱模式加入隨機微弱噪點，透過 ID 進行偏移，防重疊時過於呆板僵硬
       tempCtx.globalCompositeOperation = 'source-atop';
       tempCtx.globalAlpha = 0.06; 
       const seedX = (p.id * 37) % 64;
@@ -1365,7 +1357,6 @@ function draw(){
     paintBG(ctx, W, H);
     ctx.drawImage(tempCanvas, 0, 0, W, H);
   } else {
-    // 一般模式
     paintBG(ctx,W,H);
     
     if(hintAlpha>0 && pieces.length===0 && trayVisible()){
@@ -1385,7 +1376,6 @@ function draw(){
     }
   }
   
-  // 處理 顯影 的多層粉透疊合[cite: 1]
   const isGlassineEmboss = (skinKey === 'glassineEmboss' && pieces.length > 1);
   const isOverlapOnlyBlend = (SKINS[skinKey].isOverlapOnly && pieces.length > 1);
 
@@ -1397,7 +1387,7 @@ function draw(){
       if(p.anim && p.anim.type==='drop'){
         const t=(now-p.anim.t0)/160;
         if(t<1){
-          const k=Math.sin(Math.PI*t)*(1-t);
+          const k=Math.sin(Math.PI * t)*(1-t);
           p_sx=1+0.05*k; p_sy=1-0.07*k;
         }
       }
@@ -1410,7 +1400,7 @@ function draw(){
         if(q.anim && q.anim.type==='drop'){
           const t=(now-q.anim.t0)/160;
           if(t<1){
-            const k=Math.sin(Math.PI*t)*(1-t);
+            const k=Math.sin(Math.PI * t)*(1-t);
             q_sx=1+0.05*k; q_sy=1-0.07*k;
           }
         }
@@ -1433,7 +1423,6 @@ function draw(){
             ctx.globalCompositeOperation = 'multiply';
             ctx.fill();
             
-            // 【修改點 2】：疊合交錯處，同步去除浮雕陰影，僅描繪平整纖細的極簡交界邊線
             ctx.save();
             ctx.translate(q.x, q.y);
             if (q.rot) ctx.rotate(q.rot);
@@ -1750,7 +1739,6 @@ function resize(){
   cv.width=W*DPR; cv.height=H*DPR;
   cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(DPR,0,0,DPR,0,0);
-  // DPR 可能改變（如視窗跨螢幕移動），清除依 DPR 生成的 pattern 快取，下次繪製時重建
   delete bgPatterns.terrazzo;
   layoutWells();
   const gids=[...new Set(pieces.map(p=>p.gid))];
