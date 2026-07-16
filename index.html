@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="icon-4.jpg">
 <link rel="icon" href="icon-4.jpg">
-<title>Plop｜幾何拼塊</title>
+<title>Plop｜黏土拼桌</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   html, body {
@@ -129,8 +129,8 @@ const SKINS = {
   retro:     { label:'復古', palette:['#C80A24','#EE7A20','#093B55','#33719E','#EBB65B','#F5F2E9','#888888'],
                stroke:null, strokeW:0, shadow:false },
 
-  retroBlend:{ label:'復古(疊印)', palette:['#C80A24','#EE7A20','#093B55','#33719E','#EBB65B','rgba(255,255,255,0.92)','#888888'],
-               stroke:null, strokeW:0, shadow:false,
+  retroBlend:{ label:'復古(透影)', palette:['#C80A24','#EE7A20','#093B55','#33719E','#EBB65B','rgba(255,255,255,0.92)','#888888'],
+               stroke:null, strokeW:0, shadow:false, isOverlapOnly:true,
                blend:{mode:'multiply',allowStack:true,alpha:0.85} },
 
   pop:       { label:'剪紙',    palette:['#005cf5','#ff0080','#fcd400','#00c252','#ff5900','#ffffff','#1c1c1c'],
@@ -140,12 +140,12 @@ const SKINS = {
                stroke:null, strokeW:0, shadow:false, isPop:true,
                blend:{mode:'multiply',allowStack:true,alpha:0.85} },
 
-  afternoon: { label:'午後(疊印)', palette:['#2d9d8f','#29613f','#c82033','#2f2f2f','#f1a153','#eb9b98','#d6ebd9','#84966e','#8f6558'],
-               stroke:null, strokeW:0, shadow:false,
+  afternoon: { label:'午後(透影)', palette:['#2d9d8f','#29613f','#c82033','#2f2f2f','#f1a153','#eb9b98','#c9e3cd','#84966e','#8f6558'],
+               stroke:null, strokeW:0, shadow:false, isOverlapOnly:true,
                blend:{mode:'multiply',allowStack:true,alpha:0.88} },
 
   humanity:  { label:'玩具(疊印)',    palette:['rgba(255,255,255,0.92)','#546a53','#bd624c','#e09a5e','#7d6652','#c7b095'],
-               stroke:null, strokeW:0, shadow:false, isHumanity:true, isHalfTrans:true,
+               stroke:null, strokeW:0, shadow:false, isHalfTrans:true,
                blend:{mode:'multiply',allowStack:true,alpha:0.95} },
 
   monoBlend: { label:'黑白灰(疊印)', palette:['#ffffff','#d9d9d9','#8a8a8a','#4d4d4d','#1c1c1c'],
@@ -177,14 +177,16 @@ const SKIN_ORDER=[
 
 const BGS = {
   paper:     { label:'紙質', base:'#ede8dd' },
-  paperHeavy:{ label:'紙紋', base:'#efe6d2' },
   grid:      { label:'格紋', base:'#f0ece1' },
   lightGray: { label:'淺灰', base:'#d2d2d2' },
   wood:      { label:'深灰', base:'#b4b4b4' },
   grayBlue:  { label:'灰藍', base:'#606b7a' },
-  darkTech:  { label:'黑色', base:'#1a1a22' } 
+  darkTech:  { label:'黑色', base:'#1a1a22' },
+  terrazzo:      { label:'磨石', base:'#f4f1ea' },
+  dawn:          { label:'晨霧', base:'#c8d6e5' },
+  night:         { label:'白夜', base:'#f5f5f7' }
 };
-const BG_ORDER=['paper','paperHeavy','grid','lightGray','wood','grayBlue','darkTech'];
+const BG_ORDER=['paper','grid','lightGray','wood','grayBlue','darkTech','terrazzo','dawn','night'];
 const TRAY_BG = '#e3dbca';
 
 function centroidOf(pts){
@@ -260,7 +262,7 @@ const BRIDGE=bridgePts();
 const SHAPES = {
   triBig:  { pts:rightTri(156),                edges:'all', organic:false, label:'大三角' },
   triSmall:{ pts:rightTri(78),                 edges:'all', organic:false, label:'小三角' },
-  isoTri:  { pts:centerPts([[0,0],[60,0],[30,-116]]), edges:'all', organic:false, label:'等腰' },
+  isoTri:  { pts:centerPts([[30,-116],[60,0],[0,0]]), edges:'all', organic:false, label:'等腰' },
   square:  { pts:rect(78,78),                  edges:'all', organic:false, label:'方' },
   squareS: { pts:rect(39,39),                  edges:'all', organic:false, label:'小方' },
   rectBig: { pts:rect(156,39),                 edges:'all', organic:false, label:'長方' },
@@ -276,6 +278,7 @@ const SHAPES = {
                      [[34,-58.5],[58.5,-58.5],[58.5,58.5],[34,58.5]],
                      [[-34,-58.5],[34,-58.5],[34,-9.5],[-34,-9.5]] ],
              edges:[[0,1],[1,2],[2,3],[3,4],[12,13],[13,14],[14,0]],
+             arcSocket:{x:0,y:24.5,r:34},
              organic:false, label:'拱門',
              trace:c=>{
                c.moveTo(-58.5,-58.5); c.lineTo(58.5,-58.5); c.lineTo(58.5,58.5);
@@ -938,7 +941,7 @@ function cancelInteraction(){
 cv.addEventListener('pointercancel', cancelInteraction);
 window.addEventListener('blur', cancelInteraction);
 
-let grain=null, fineNoise=null, heavyFiber=null, grainHeavy=null;
+let grain=null, fineNoise=null;
 
 function makeGrain(){
   const g=document.createElement('canvas');
@@ -964,66 +967,46 @@ function makeGrain(){
   }
   gcTech.putImageData(imgTech,0,0);
   fineNoise=ctx.createPattern(gTech,'repeat');
+}
 
-  const gHum=document.createElement('canvas');
-  gHum.width=gHum.height=250;
-  const gcHum=gHum.getContext('2d');
-  gcHum.fillStyle='rgba(255,255,255,0)';
-  gcHum.fillRect(0,0,250,250);
-  
-  gcHum.strokeStyle='rgba(110,95,80,0.08)';
-  for(let i=0;i<24;i++){
-    gcHum.beginPath();
-    gcHum.lineWidth=0.5 + Math.random()*0.8;
-    let sx=Math.random()*250, sy=Math.random()*250;
-    gcHum.moveTo(sx,sy);
-    gcHum.bezierCurveTo(
-      sx+Math.random()*25-12.5, sy+Math.random()*25-12.5, 
-      sx+Math.random()*50-25, sy+Math.random()*50-25, 
-      sx+Math.random()*70-35, sy+Math.random()*70-35
-    );
-    gcHum.stroke();
+// 將 CSS 尺寸的 tile canvas 依目前 DPR 建立高解析度來源，
+// 再用 pattern.setTransform 縮回 CSS 尺寸，確保線條銳利且不受 DPR 影響輸出大小。
+function createDprPattern(tileCanvas, cssW, cssH){
+  const pat=ctx.createPattern(tileCanvas,'repeat');
+  if(pat && pat.setTransform){
+    try{
+      pat.setTransform(new DOMMatrix([tileCanvas.width?cssW/tileCanvas.width:1,0,0,tileCanvas.height?cssH/tileCanvas.height:1,0,0]));
+    }catch(e){}
   }
-  gcHum.fillStyle='rgba(90,80,70,0.06)';
-  for(let i=0;i<15;i++){
-    gcHum.beginPath();
-    gcHum.arc(Math.random()*250, Math.random()*250, 0.4+Math.random()*0.8, 0, Math.PI*2);
-    gcHum.fill();
-  }
-  heavyFiber=ctx.createPattern(gHum,'repeat');
+  return pat;
+}
 
-  const gPaper=document.createElement('canvas');
-  gPaper.width=gPaper.height=200;
-  const gcPaper=gPaper.getContext('2d');
-
-  const imgPaper=gcPaper.createImageData(200,200);
-  for(let i=0;i<imgPaper.data.length;i+=4){
-    const v=190+Math.random()*70|0;
-    imgPaper.data[i]=imgPaper.data[i+1]=imgPaper.data[i+2]=v;
-    imgPaper.data[i+3]=Math.random()<0.55?22:0;
+// 暖白磨石子：低密度隨機碎石，圓潤多邊形
+function makeTerrazzoPattern(){
+  const cssSize=150;
+  const t=document.createElement('canvas');
+  t.width=Math.max(1,Math.round(cssSize*DPR));
+  t.height=t.width;
+  const tc=t.getContext('2d');
+  tc.setTransform(t.width/cssSize,0,0,t.height/cssSize,0,0);
+  const stoneColors=['rgba(180,200,210,0.6)','rgba(220,180,180,0.55)','rgba(205,198,175,0.5)','rgba(198,190,208,0.5)'];
+  const count=10;
+  for(let i=0;i<count;i++){
+    const cx=Math.random()*cssSize, cy=Math.random()*cssSize;
+    const r=1.6+Math.random()*3.2;
+    tc.fillStyle=stoneColors[i%stoneColors.length];
+    tc.beginPath();
+    const pts=6;
+    for(let k=0;k<=pts;k++){
+      const a=(k/pts)*Math.PI*2;
+      const rr=r*(0.7+Math.random()*0.6);
+      const px=cx+Math.cos(a)*rr, py=cy+Math.sin(a)*rr;
+      if(k===0) tc.moveTo(px,py); else tc.lineTo(px,py);
+    }
+    tc.closePath();
+    tc.fill();
   }
-  gcPaper.putImageData(imgPaper,0,0);
-
-  gcPaper.strokeStyle='rgba(107,95,78,0.16)';
-  for(let i=0;i<40;i++){
-    gcPaper.beginPath();
-    gcPaper.lineWidth=0.5+Math.random()*1.1;
-    let sx=Math.random()*200, sy=Math.random()*200;
-    gcPaper.moveTo(sx,sy);
-    gcPaper.bezierCurveTo(
-      sx+Math.random()*30-15, sy+Math.random()*30-15,
-      sx+Math.random()*60-30, sy+Math.random()*60-30,
-      sx+Math.random()*90-45, sy+Math.random()*90-45
-    );
-    gcPaper.stroke();
-  }
-  gcPaper.fillStyle='rgba(90,80,70,0.10)';
-  for(let i=0;i<26;i++){
-    gcPaper.beginPath();
-    gcPaper.arc(Math.random()*200, Math.random()*200, 0.5+Math.random()*1.1, 0, Math.PI*2);
-    gcPaper.fill();
-  }
-  grainHeavy=ctx.createPattern(gPaper,'repeat');
+  return createDprPattern(t,cssSize,cssSize);
 }
 
 const bgPatterns={};
@@ -1034,8 +1017,6 @@ function bgPattern(key){
   const tc=t.getContext('2d');
   if(key==='paper' || key==='lightGray' || key==='wood' || key==='grayBlue'){
     pat=grain;
-  }else if(key==='paperHeavy'){
-    pat=grainHeavy;
   }else if(key==='grid'){
     t.width=t.height=39;
     tc.strokeStyle='rgba(107,95,78,0.14)';
@@ -1047,11 +1028,50 @@ function bgPattern(key){
     pat=ctx.createPattern(t,'repeat');
   }else if(key==='darkTech'){
     pat=grain;
+  }else if(key==='terrazzo'){
+    pat=makeTerrazzoPattern();
   }
   bgPatterns[key]=pat;
   return pat;
 }
+
+// 晨霧晚霞 / 白夜消隱：對角漸層 + 磨砂玻璃噪點
+function renderGradientFrostBG(w,h,colorA,colorB){
+  const cvs=document.createElement('canvas');
+  cvs.width=Math.max(1,Math.ceil(w*DPR));
+  cvs.height=Math.max(1,Math.ceil(h*DPR));
+  const c2=cvs.getContext('2d');
+  c2.setTransform(DPR,0,0,DPR,0,0);
+  const grad=c2.createLinearGradient(0,0,w,h);
+  grad.addColorStop(0,colorA);
+  grad.addColorStop(1,colorB);
+  c2.fillStyle=grad;
+  c2.fillRect(0,0,w,h);
+  const n=Math.min(9000,Math.max(3000,Math.round(w*h/300)));
+  for(let i=0;i<n;i++){
+    const x=Math.random()*w, y=Math.random()*h;
+    c2.fillStyle = Math.random()<0.5 ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.015)';
+    c2.fillRect(x,y,1,1);
+  }
+  return cvs;
+}
+function renderDawnBG(w,h){ return renderGradientFrostBG(w,h,'#c8d6e5','#fbc5b0'); }
+function renderNightBG(w,h){ return renderGradientFrostBG(w,h,'#f5f5f7','#e2e2ed'); }
+
+const bgFullImages={};
+function getBgFullImage(key,w,h){
+  const cached=bgFullImages[key];
+  if(cached && cached.w===w && cached.h===h && cached.dpr===DPR) return cached.canvas;
+  const canvas = (key==='dawn') ? renderDawnBG(w,h) : renderNightBG(w,h);
+  bgFullImages[key]={canvas,w,h,dpr:DPR};
+  return canvas;
+}
+
 function paintBG(c,w,h){
+  if(bgKey==='dawn' || bgKey==='night'){
+    c.drawImage(getBgFullImage(bgKey,w,h),0,0,w,h);
+    return;
+  }
   c.fillStyle=BGS[bgKey].base;
   c.fillRect(0,0,w,h);
   const pat=bgPattern(bgKey);
@@ -1163,7 +1183,7 @@ function drawPiece(c,p,now){
     col = BGS[bgKey].base; 
   }
 
-  if(blend && !skin.isWhiteGrad && !skin.isGlassineEmboss){
+  if(blend && !skin.isWhiteGrad && !skin.isGlassineEmboss && !skin.isOverlapOnly){
     if(isVeryLightColor(col)){
       c.globalCompositeOperation='source-over';
     }else{
@@ -1215,20 +1235,18 @@ function drawPiece(c,p,now){
     piecePath(c,p.shape,px,py,rot,sx,sy);
     c.fillStyle=col;
     c.fill();
-    
-    if (skin.isHumanity) {
+
+    if (skin.isOverlapOnly && bgKey === 'grid') {
       c.save();
       c.globalCompositeOperation = 'source-atop';
-      c.fillStyle = heavyFiber;
-      const bbox = SHAPES[p.shape].bbox;
-      c.translate(px, py);
-      if (rot) c.rotate(rot);
-      c.fillRect(bbox[0]-10, bbox[1]-10, bbox[2]-bbox[0]+20, bbox[3]-bbox[1]+20);
+      c.globalAlpha = isVeryLightColor(col) ? 0.4 : 1;
+      c.fillStyle = bgPattern('grid');
+      c.fill();
       c.restore();
     }
   }
 
-  // 顯影浮雕[cite: 1]
+  // 顯影[cite: 1]
   if (skin.isGlassineEmboss) {
     c.save();
     c.translate(px, py);
@@ -1237,7 +1255,7 @@ function drawPiece(c,p,now){
     
     // 【修改點 2】：刪除所有陰影/高光浮雕（無 shadow 偏移、無多層 stroke），改用極簡純淨線條。
     // 基於背景色動態調整線條明暗，確保視覺清晰度。
-    const useDarkStroke = (bgKey === 'paper' || bgKey === 'paperHeavy' || bgKey === 'grid' || bgKey === 'lightGray');
+    const useDarkStroke = (bgKey === 'paper' || bgKey === 'grid' || bgKey === 'lightGray' || bgKey === 'terrazzo' || bgKey === 'dawn' || bgKey === 'night');
     c.strokeStyle = useDarkStroke ? 'rgba(107, 95, 78, 0.45)' : 'rgba(255, 255, 255, 0.55)';
     c.lineWidth = 1.6;
     c.beginPath();
@@ -1367,10 +1385,11 @@ function draw(){
     }
   }
   
-  // 處理 顯影浮雕 的多層粉透疊合[cite: 1]
+  // 處理 顯影 的多層粉透疊合[cite: 1]
   const isGlassineEmboss = (skinKey === 'glassineEmboss' && pieces.length > 1);
-  
-  if((skinKey === 'whiteGrad' || isGlassineEmboss) && pieces.length > 1){
+  const isOverlapOnlyBlend = (SKINS[skinKey].isOverlapOnly && pieces.length > 1);
+
+  if((skinKey === 'whiteGrad' || isGlassineEmboss || isOverlapOnlyBlend) && pieces.length > 1){
     ctx.save();
     for(let i=0; i<pieces.length; i++){
       const p = pieces[i];
@@ -1419,13 +1438,31 @@ function draw(){
             ctx.translate(q.x, q.y);
             if (q.rot) ctx.rotate(q.rot);
             ctx.scale(q_sx, q_sy);
-            const useDarkStroke = (bgKey === 'paper' || bgKey === 'paperHeavy' || bgKey === 'grid' || bgKey === 'lightGray');
+            const useDarkStroke = (bgKey === 'paper' || bgKey === 'grid' || bgKey === 'lightGray' || bgKey === 'terrazzo' || bgKey === 'dawn' || bgKey === 'night');
             ctx.strokeStyle = useDarkStroke ? 'rgba(107, 95, 78, 0.45)' : 'rgba(255, 255, 255, 0.55)';
             ctx.lineWidth = 1.4;
             ctx.beginPath();
             tracePath(ctx, SHAPES[q.shape]);
             ctx.stroke();
             ctx.restore();
+          } else if (isOverlapOnlyBlend) {
+            ctx.translate(q.x, q.y);
+            if (q.rot) ctx.rotate(q.rot);
+            ctx.scale(q_sx, q_sy);
+            ctx.beginPath();
+            tracePath(ctx, SHAPES[q.shape]);
+
+            const skinQ = SKINS[skinKey];
+            const colQ = skinQ.palette[q.ci % skinQ.palette.length];
+            ctx.fillStyle = colQ;
+            if (isVeryLightColor(colQ)) {
+              ctx.globalAlpha = 0.65;
+              ctx.globalCompositeOperation = 'source-over';
+            } else {
+              ctx.globalAlpha = skinQ.blend.alpha || 0.85;
+              ctx.globalCompositeOperation = skinQ.blend.mode || 'multiply';
+            }
+            ctx.fill();
           } else {
             ctx.translate(q.x, q.y);
             if (q.rot) ctx.rotate(q.rot);
@@ -1713,6 +1750,8 @@ function resize(){
   cv.width=W*DPR; cv.height=H*DPR;
   cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(DPR,0,0,DPR,0,0);
+  // DPR 可能改變（如視窗跨螢幕移動），清除依 DPR 生成的 pattern 快取，下次繪製時重建
+  delete bgPatterns.terrazzo;
   layoutWells();
   const gids=[...new Set(pieces.map(p=>p.gid))];
   for(const g of gids) clampGroup(groupPieces(g));
