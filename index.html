@@ -22,33 +22,37 @@
     position:fixed; top:calc(10px + env(safe-area-inset-top)); right:14px;
     display:flex; flex-direction:column; align-items:flex-end; gap:8px; z-index:10;
   }
-  #ui, #ui2 {
-    display:flex; gap:8px;
-    flex-wrap:wrap; justify-content:flex-end; max-width:calc(100vw - 90px);
-  }
-  #ui2 { display:none; }
-  #ui2.open { display:flex; }
+  #uiWrap { touch-action:manipulation; }
   #uiWrap button {
     appearance:none; border:none; cursor:pointer;
-    padding:8px 14px; border-radius:999px;
-    background:rgba(255,252,244,0.72); color:#6b5f4e;
+    padding:8px 14px;
+    background:transparent; color:#6b5f4e;
     font-size:14px; letter-spacing:1px;
+    touch-action:manipulation;
+    position:relative;
+  }
+  #uiWrap button:active { transform:translateY(1px); }
+  .seg {
+    display:flex; align-items:stretch;
+    border-radius:999px; overflow:hidden;
+    background:rgba(255,252,244,0.72);
     box-shadow:0 1px 4px rgba(90,72,50,0.14);
     backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
   }
-  #uiWrap button:active { transform:translateY(1px); }
-  #clearBtn.arm { background:#c9856f; color:#fff8ef; }
-  #lookBtn.on { background:#8a7c66; color:#fdf8ec; }
-  
-  #skinBtn {
-    min-width: 110px;
-    text-align: center;
+  .seg button:not(:last-child)::after {
+    content:''; position:absolute; right:0; top:22%; bottom:22%; width:1px;
+    background:rgba(90,72,50,0.16);
   }
-
-  #brand {
-    position:fixed; top:calc(14px + env(safe-area-inset-top)); left:16px;
-    color:rgba(107,95,78,0.5); font-size:13px; letter-spacing:2px; z-index:10;
-    pointer-events:none;
+  #clearBtn.arm { background:#c9856f; color:#fff8ef; }
+  
+  #skinBtn, #bgBtn {
+    min-width: 76px;
+    text-align: center;
+    cursor:default; font-weight:600;
+  }
+  #uiWrap #skinBtn:active, #uiWrap #bgBtn:active { transform:none !important; }
+  #skinPrevBtn, #skinNextBtn, #bgPrevBtn, #bgNextBtn {
+    padding:8px 10px; font-size:12px;
   }
   #toast {
     position:fixed; left:50%; top:22%;
@@ -64,12 +68,20 @@
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: #ede8dd; z-index: 100;
     display: flex; flex-direction: column; justify-content: center; align-items: center;
+    gap: 14px;
     transition: opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1), transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
     pointer-events: none;
   }
   #loader.hide {
     opacity: 0;
     transform: scale(1.02);
+  }
+  #loaderIcon {
+    width: 64px; height: 64px; border-radius: 16px;
+    box-shadow: 0 2px 10px rgba(90,72,50,0.18);
+  }
+  #loaderName {
+    color: #6b5f4e; font-size: 17px; letter-spacing: 3px; font-weight: 600;
   }
   #loaderText {
     color: #6b5f4e; font-size: 14px; letter-spacing: 4px;
@@ -79,27 +91,107 @@
     0%, 100% { opacity: 0.4; }
     50% { opacity: 0.85; }
   }
+
+  #uiPersist, #uiMenu {
+    display:flex; gap:8px;
+    flex-wrap:wrap; justify-content:flex-end; max-width:calc(100vw - 90px);
+  }
+  #uiMenu { display:none; flex-direction:column; align-items:flex-start; }
+  #uiMenu.open { display:flex; }
+  @media (max-width:640px){
+    #segMenu {
+      position:fixed; top:calc(10px + env(safe-area-inset-top)); left:14px; z-index:11;
+    }
+    #uiMenu.open {
+      position:fixed; top:calc(54px + env(safe-area-inset-top)); left:14px;
+      justify-content:flex-start; max-width:calc(100vw - 28px);
+    }
+  }
+  @media (min-width:641px){
+    #menuBtn { display:none; }
+    #uiMenu {
+      display:flex !important;
+      position:fixed; top:calc(10px + env(safe-area-inset-top)); left:14px;
+      justify-content:flex-start; max-width:calc(100vw - 90px);
+    }
+  }
+
+  #infoOverlay {
+    position:fixed; inset:0; z-index:50;
+    display:none;
+    background:rgba(40,34,26,0.4);
+    align-items:center; justify-content:center;
+    padding:24px;
+  }
+  #infoOverlay.open { display:flex; }
+  #infoPanel {
+    position:relative;
+    background:#fffcf4; color:#4a4032;
+    width:100%; max-width:260px; height:auto;
+    border-radius:16px;
+    box-shadow:0 8px 30px rgba(40,34,26,0.25);
+    padding:34px 22px 28px;
+    display:flex; flex-direction:column; align-items:center; gap:20px;
+    text-align:center;
+  }
+  #infoPanel .infoIcon { width:56px; height:56px; border-radius:14px; }
+  #infoPanel .name { font-size:16px; font-weight:600; letter-spacing:1.5px; }
+  #infoPanel .infoBody { font-size:13px; line-height:1.9; color:#7a6f5c; }
+  #infoPanel .infoDivider { font-size:11px; letter-spacing:6px; color:#c9bda3; }
+  #infoPanel .infoFooter { font-size:11px; line-height:1.9; color:#a99d84; }
+  #infoPanel .infoClose {
+    position:absolute; top:10px; right:10px;
+    appearance:none; border:none; cursor:pointer;
+    width:26px; height:26px; border-radius:50%;
+    background:rgba(107,95,78,0.1); color:#6b5f4e; font-size:14px;
+    display:flex; align-items:center; justify-content:center;
+  }
 </style>
 </head>
 <body>
 <div id="loader">
+  <img id="loaderIcon" src="icon-4.jpg" alt="">
+  <div id="loaderName">Plop</div>
   <div id="loaderText">顯影中，請稍候...</div>
 </div>
-<div id="brand">Plop</div>
 <div id="uiWrap">
-<div id="ui">
-  <button id="modeBtn">隨機盤</button>
-  <button id="moreBtn">補料</button>
-  <button id="lookBtn">外觀</button>
-  <button id="undoBtn">復原</button>
-  <button id="clearBtn">清空</button>
+<div id="uiPersist">
+  <div class="seg" id="segMenu">
+    <button id="menuBtn" aria-label="功能選單">☰</button>
+    <button id="undoBtn" aria-label="復原">↺</button>
+  </div>
+  <div class="seg">
+    <button id="skinBtn">故事</button>
+    <button id="skinPrevBtn" aria-label="上一個材質">◀</button>
+    <button id="skinNextBtn" aria-label="下一個材質">▶</button>
+  </div>
+  <div class="seg">
+    <button id="bgBtn">紙質</button>
+    <button id="bgPrevBtn" aria-label="上一個背景">◀</button>
+    <button id="bgNextBtn" aria-label="下一個背景">▶</button>
+  </div>
 </div>
-<div id="ui2">
-  <button id="skinPrevBtn" aria-label="上一個材質">‹</button>
-  <button id="skinBtn">故事</button>
-  <button id="skinNextBtn" aria-label="下一個材質">›</button>
-  <button id="bgBtn">紙質</button>
+<div id="uiMenu">
+  <div class="seg">
+    <button id="infoBtn">資訊</button>
+    <button id="saveBtn">存圖</button>
+    <button id="clearBtn">清空</button>
+  </div>
+  <div class="seg">
+    <button id="modeBtn">隨機盤</button>
+    <button id="moreBtn">補料</button>
+  </div>
 </div>
+</div>
+<div id="infoOverlay">
+  <div id="infoPanel">
+    <button class="infoClose" id="infoCloseBtn" aria-label="關閉">✕</button>
+    <img class="infoIcon" src="icon-4.jpg" alt="">
+    <div class="name">Plop 積木拚桌</div>
+    <div class="infoBody">平面積木小遊戲，<br>透過拖曳旋轉拼出不同風景。</div>
+    <div class="infoDivider">⏺︎▲⏹︎</div>
+    <div class="infoFooter">本應用程式由 AI Agent 協助開發<br>© UTONEEE 2026</div>
+  </div>
 </div>
 <div id="toast"></div>
 <canvas id="cv"></canvas>
@@ -129,26 +221,26 @@ const SKINS = {
   retro:     { label:'復古', palette:['#C80A24','#EE7A20','#093B55','#33719E','#EBB65B','#F5F2E9','#888888'],
                stroke:null, strokeW:0, shadow:false },
 
-  retroBlend:{ label:'復古(透影)', palette:['#C80A24','#EE7A20','#093B55','#33719E','#EBB65B','rgba(255,255,255,0.92)','#888888'],
+  retroBlend:{ label:'復古-透影', palette:['#C80A24','#EE7A20','#093B55','#33719E','#EBB65B','rgba(255,255,255,0.92)','#888888'],
                stroke:null, strokeW:0, shadow:false, isOverlapOnly:true,
                blend:{mode:'multiply',allowStack:true,alpha:0.85} },
 
   pop:       { label:'剪紙',    palette:['#005cf5','#ff0080','#fcd400','#00c252','#ff5900','#ffffff','#1c1c1c'],
                stroke:null, strokeW:0, shadow:false, isPop:true },
 
-  popBlend:  { label:'剪紙(疊印)', palette:['#005cf5','#ff0080','#fcd400','#00c252','#ff5900','#ffffff','#1c1c1c'],
+  popBlend:  { label:'剪紙-疊印', palette:['#005cf5','#ff0080','#fcd400','#00c252','#ff5900','#ffffff','#1c1c1c'],
                stroke:null, strokeW:0, shadow:false, isPop:true,
                blend:{mode:'multiply',allowStack:true,alpha:0.85} },
 
-  afternoon: { label:'午後(透影)', palette:['#2d9d8f','#29613f','#c82033','#2f2f2f','#f1a153','#eb9b98','#c9e3cd','#84966e','#8f6558'],
+  afternoon: { label:'午後-透影', palette:['#2d9d8f','#29613f','#c82033','#2f2f2f','#f1a153','#eb9b98','#c9e3cd','#84966e','#8f6558'],
                stroke:null, strokeW:0, shadow:false, isOverlapOnly:true,
                blend:{mode:'multiply',allowStack:true,alpha:0.88} },
 
-  humanity:  { label:'玩具(疊印)',    palette:['rgba(255,255,255,0.92)','#546a53','#bd624c','#e09a5e','#7d6652','#c7b095'],
+  humanity:  { label:'玩具-疊印',    palette:['rgba(255,255,255,0.92)','#546a53','#bd624c','#e09a5e','#7d6652','#c7b095'],
                stroke:null, strokeW:0, shadow:false, isHalfTrans:true,
                blend:{mode:'multiply',allowStack:true,alpha:0.95} },
 
-  monoBlend: { label:'黑白灰(疊印)', palette:['#ffffff','#d9d9d9','#8a8a8a','#4d4d4d','#1c1c1c'],
+  monoBlend: { label:'灰階-疊印', palette:['#ffffff','#d9d9d9','#8a8a8a','#4d4d4d','#1c1c1c'],
                stroke:null, strokeW:0, shadow:false,
                blend:{mode:'multiply',allowStack:true,alpha:0.85} },
 
@@ -167,13 +259,31 @@ const SKINS = {
 
   glassineEmboss: { label:'顯影', palette:['#f4a6b9','#9fd8e6','#f5df86','#bce3c3','#c9b5ea'],
                stroke:null, strokeW:0, shadow:false, isGlassineEmboss:true,
-               blend:{mode:'multiply',allowStack:true,alpha:0.45} }
+               blend:{mode:'multiply',allowStack:true,alpha:0.45} },
+
+  neon:      { label:'霓虹', palette:['#F4C430','#2E9FD6','#EC1E63','#8DC63F'],
+               stroke:null, strokeW:0, shadow:false, isNeonOutline:true }
 };
 
 const SKIN_ORDER=[
-  'mineral','retro','retroBlend','pop','popBlend','afternoon','humanity','monoBlend','whiteGrad','tech','mondrian',
-  'void','glassineEmboss'
+  'mineral','retro','retroBlend','pop','popBlend','afternoon','humanity','monoBlend',
+  'whiteGrad','glassineEmboss','void','tech','neon','mondrian'
 ];
+
+const NEON_STROKE_W = 7;
+const NEON_MIX = {
+  '0,1':'#EC1E63',
+  '0,3':'#2E9FD6',
+  '1,2':'#8DC63F',
+  '2,3':'#F4C430',
+  '0,2':'#8B2FC9',
+  '1,3':'#F2600C'
+};
+function neonMixColor(ciA,ciB){
+  if(ciA===ciB) return null;
+  const key = ciA<ciB ? (ciA+','+ciB) : (ciB+','+ciA);
+  return NEON_MIX[key] || '#ffffff';
+}
 
 const BGS = {
   paper:     { label:'紙質', base:'#ede8dd' },
@@ -183,10 +293,11 @@ const BGS = {
   grayBlue:  { label:'灰藍', base:'#606b7a' },
   darkTech:  { label:'黑色', base:'#1a1a22' },
   terrazzo:      { label:'磨石', base:'#f4f1ea' },
+  terrazzoDark:  { label:'黑石', base:'#4a453f' },
   dawn:          { label:'晨霧', base:'#c8d6e5' },
   night:         { label:'白夜', base:'#f5f5f7' }
 };
-const BG_ORDER=['paper','grid','lightGray','wood','grayBlue','darkTech','terrazzo','dawn','night'];
+const BG_ORDER=['darkTech','terrazzoDark','terrazzo','night','dawn','paper','grid','lightGray','wood','grayBlue'];
 const TRAY_BG = '#e3dbca';
 
 function centroidOf(pts){
@@ -428,6 +539,28 @@ function pointInPoly(x,y,pts){
     if(((yi>y)!==(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi)+xi)) inside=true;
   }
   return inside;
+}
+function segIntersect(p1,p2,p3,p4){
+  const d1x=p2[0]-p1[0], d1y=p2[1]-p1[1];
+  const d2x=p4[0]-p3[0], d2y=p4[1]-p3[1];
+  const denom = d1x*d2y - d1y*d2x;
+  if(Math.abs(denom)<1e-9) return null;
+  const t = ((p3[0]-p1[0])*d2y - (p3[1]-p1[1])*d2x)/denom;
+  const u = ((p3[0]-p1[0])*d1y - (p3[1]-p1[1])*d1x)/denom;
+  if(t<0||t>1||u<0||u>1) return null;
+  return [p1[0]+t*d1x, p1[1]+t*d1y];
+}
+function polyIntersections(ptsA, ptsB){
+  const out=[];
+  for(let i=0;i<ptsA.length;i++){
+    const a1=ptsA[i], a2=ptsA[(i+1)%ptsA.length];
+    for(let j=0;j<ptsB.length;j++){
+      const b1=ptsB[j], b2=ptsB[(j+1)%ptsB.length];
+      const ip=segIntersect(a1,a2,b1,b2);
+      if(ip) out.push(ip);
+    }
+  }
+  return out;
 }
 
 function groupPieces(gid){ return pieces.filter(p=>p.gid===gid); }
@@ -719,7 +852,7 @@ function applyDrag(px,py){
   if(!drag.overTray){
     drag.snap=null;
     const currentSkin = SKINS[skinKey];
-    const skipPhysics = blend || currentSkin.isVoid;
+    const skipPhysics = blend || currentSkin.isVoid || currentSkin.isNeonOutline;
     
     if(!skipPhysics){
       const s1=findEdgeSnap(drag.list);
@@ -752,7 +885,7 @@ function endDrag(){
   }
   
   const currentSkin = SKINS[skinKey];
-  const skipPhysics = blend || currentSkin.isVoid;
+  const skipPhysics = blend || currentSkin.isVoid || currentSkin.isNeonOutline;
 
   if(skipPhysics){
     const tb=performance.now();
@@ -904,7 +1037,7 @@ function rotateGroup(piece){
   clampGroup(list);
   
   const currentSkin = SKINS[skinKey];
-  const skipPhysics = blend || currentSkin.isVoid;
+  const skipPhysics = blend || currentSkin.isVoid || currentSkin.isNeonOutline;
   if(!skipPhysics) resolveCollisions(piece.gid);
   
   pushedAt.clear();
@@ -980,14 +1113,16 @@ function createDprPattern(tileCanvas, cssW, cssH){
   return pat;
 }
 
-function makeTerrazzoPattern(){
+function makeTerrazzoPattern(dark){
   const cssSize=150;
   const t=document.createElement('canvas');
   t.width=Math.max(1,Math.round(cssSize*DPR));
   t.height=t.width;
   const tc=t.getContext('2d');
   tc.setTransform(t.width/cssSize,0,0,t.height/cssSize,0,0);
-  const stoneColors=['rgba(180,200,210,0.6)','rgba(220,180,180,0.55)','rgba(205,198,175,0.5)','rgba(198,190,208,0.5)'];
+  const stoneColors=dark
+    ? ['rgba(90,105,115,0.55)','rgba(120,90,90,0.5)','rgba(110,102,80,0.5)','rgba(100,92,112,0.5)']
+    : ['rgba(180,200,210,0.6)','rgba(220,180,180,0.55)','rgba(205,198,175,0.5)','rgba(198,190,208,0.5)'];
   const count=10;
   for(let i=0;i<count;i++){
     const cx=Math.random()*cssSize, cy=Math.random()*cssSize;
@@ -1026,8 +1161,8 @@ function bgPattern(key){
     pat=ctx.createPattern(t,'repeat');
   }else if(key==='darkTech'){
     pat=grain;
-  }else if(key==='terrazzo'){
-    pat=makeTerrazzoPattern();
+  }else if(key==='terrazzo' || key==='terrazzoDark'){
+    pat=makeTerrazzoPattern(key==='terrazzoDark');
   }
   bgPatterns[key]=pat;
   return pat;
@@ -1227,6 +1362,19 @@ function drawPiece(c,p,now){
     c.fillStyle = grad;
     c.fillRect(bbox[0]-10, bbox[1]-10, bbox[2]-bbox[0]+20, bbox[3]-bbox[1]+20);
     c.restore();
+    c.restore();
+  } else if (skin.isNeonOutline) {
+    c.save();
+    c.translate(px, py);
+    if (rot) c.rotate(rot);
+    c.scale(sx, sy);
+    c.beginPath();
+    tracePath(c, SHAPES[p.shape]);
+    c.strokeStyle = col;
+    c.lineWidth = NEON_STROKE_W;
+    c.lineJoin = 'round';
+    c.lineCap = 'round';
+    c.stroke();
     c.restore();
   } else if (!skin.isVoid && !skin.isGlassineEmboss) {
     piecePath(c,p.shape,px,py,rot,sx,sy);
@@ -1475,6 +1623,105 @@ function draw(){
     ctx.restore();
   }
 
+  const isNeonOutline = SKINS[skinKey].isNeonOutline && pieces.length > 1;
+  if(isNeonOutline){
+    function neonAnimScale(p){
+      let p_sx=1, p_sy=1;
+      if(p.anim && p.anim.type==='drop'){
+        const t=(now-p.anim.t0)/160;
+        if(t<1){
+          const k=Math.sin(Math.PI*t)*(1-t);
+          p_sx=1+0.05*k; p_sy=1-0.07*k;
+        }
+      }
+      if(p.floating){ p_sx*=1.07; p_sy*=1.07; }
+      return [p_sx,p_sy];
+    }
+    const bboxCache=pieces.map(p=>worldBBox(p));
+    const scaleCache=pieces.map(p=>neonAnimScale(p));
+
+    ctx.save();
+
+    for(let i=0;i<pieces.length;i++){
+      const p=pieces[i], pb=bboxCache[i], [p_sx,p_sy]=scaleCache[i];
+      for(let j=i+1;j<pieces.length;j++){
+        const q=pieces[j], qb=bboxCache[j];
+        if(!bboxOverlap(pb,qb,0)) continue;
+        const [q_sx,q_sy]=scaleCache[j];
+        for(let k=j+1;k<pieces.length;k++){
+          const r=pieces[k], rb=bboxCache[k];
+          if(!bboxOverlap(pb,rb,0) || !bboxOverlap(qb,rb,0)) continue;
+          const [r_sx,r_sy]=scaleCache[k];
+
+          ctx.save();
+          ctx.beginPath();
+          piecePath(ctx,p.shape,p.x,p.y,p.rot||0,p_sx,p_sy);
+          ctx.clip();
+          ctx.beginPath();
+          piecePath(ctx,q.shape,q.x,q.y,q.rot||0,q_sx,q_sy);
+          ctx.clip();
+          ctx.beginPath();
+          piecePath(ctx,r.shape,r.x,r.y,r.rot||0,r_sx,r_sy);
+          ctx.clip();
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0,0,W,H);
+          ctx.restore();
+        }
+      }
+    }
+
+    for(let i=0;i<pieces.length;i++){
+      const p=pieces[i], pb=bboxCache[i], [p_sx,p_sy]=scaleCache[i];
+      for(let j=i+1;j<pieces.length;j++){
+        const q=pieces[j], qb=bboxCache[j];
+        if(!bboxOverlap(pb,qb,0)) continue;
+        const [q_sx,q_sy]=scaleCache[j];
+        const mixColor = neonMixColor(p.ci%4, q.ci%4);
+        if(!mixColor) continue;
+
+        ctx.save();
+        ctx.beginPath();
+        piecePath(ctx,q.shape,q.x,q.y,q.rot||0,q_sx,q_sy);
+        ctx.clip();
+        ctx.strokeStyle = mixColor;
+        ctx.lineWidth = NEON_STROKE_W;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        piecePath(ctx,p.shape,p.x,p.y,p.rot||0,p_sx,p_sy);
+        ctx.stroke();
+        ctx.restore();
+
+        ctx.save();
+        ctx.beginPath();
+        piecePath(ctx,p.shape,p.x,p.y,p.rot||0,p_sx,p_sy);
+        ctx.clip();
+        ctx.strokeStyle = mixColor;
+        ctx.lineWidth = NEON_STROKE_W;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        piecePath(ctx,q.shape,q.x,q.y,q.rot||0,q_sx,q_sy);
+        ctx.stroke();
+        ctx.restore();
+
+        const xPts = polyIntersections(worldPts(p), worldPts(q));
+        if(xPts.length){
+          ctx.save();
+          ctx.fillStyle = mixColor;
+          for(const xp of xPts){
+            ctx.beginPath();
+            ctx.arc(xp[0], xp[1], NEON_STROKE_W/2, 0, Math.PI*2);
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+      }
+    }
+
+    ctx.restore();
+  }
+
   if(trayVisible()){
     ctx.save();
     ctx.shadowColor='rgba(90,72,50,0.12)';
@@ -1572,7 +1819,7 @@ function scatterDrop() {
   }
   
   const currentSkin = SKINS[skinKey];
-  const skipPhysics = blend || currentSkin.isVoid;
+  const skipPhysics = blend || currentSkin.isVoid || currentSkin.isNeonOutline;
   if(!skipPhysics) {
     for(let i=0;i<6;i++) resolveCollisions(-1);
   }
@@ -1587,7 +1834,7 @@ function refillDrop(){
   const t0=performance.now();
   
   const currentSkin = SKINS[skinKey];
-  const skipPhysics = blend || currentSkin.isVoid;
+  const skipPhysics = blend || currentSkin.isVoid || currentSkin.isNeonOutline;
 
   for(let i=0;i<n;i++){
     const shape=TRAY_ORDER[Math.floor(Math.random()*TRAY_ORDER.length)];
@@ -1656,13 +1903,109 @@ modeBtn.addEventListener('click',()=>{
   updateBtns(); saveState(); dirty=true;
 });
 moreBtn.addEventListener('click',()=>{ if(mode==='rand') refillDrop(); });
-const lookBtn=document.getElementById('lookBtn');
-const ui2=document.getElementById('ui2');
-lookBtn.addEventListener('click',()=>{
-  const open=ui2.classList.toggle('open');
-  lookBtn.classList.toggle('on',open);
+const menuBtn=document.getElementById('menuBtn');
+const uiMenu=document.getElementById('uiMenu');
+menuBtn.addEventListener('click',()=>{
+  uiMenu.classList.toggle('open');
 });
 document.getElementById('undoBtn').addEventListener('click',doUndo);
+
+const appIconImg=new Image();
+appIconImg.src='icon-4.jpg';
+
+function roundRectPath(c,x,y,w,h,r){
+  c.beginPath();
+  c.moveTo(x+r,y);
+  c.arcTo(x+w,y,x+w,y+h,r);
+  c.arcTo(x+w,y+h,x,y+h,r);
+  c.arcTo(x,y+h,x,y,r);
+  c.arcTo(x,y,x+w,y,r);
+  c.closePath();
+}
+
+function roundRectPathFlagRight(c,x,y,w,h,r){
+  c.beginPath();
+  c.moveTo(x+r,y);
+  c.lineTo(x+w,y);
+  c.lineTo(x+w,y+h);
+  c.lineTo(x+r,y+h);
+  c.arcTo(x,y+h,x,y+h-r,r);
+  c.lineTo(x,y+r);
+  c.arcTo(x,y,x+r,y,r);
+  c.closePath();
+}
+
+function saveImage(){
+  const cropH = trayVisible() ? Math.round(trayTop*DPR) : cv.height;
+  const out=document.createElement('canvas');
+  out.width=cv.width; out.height=cropH;
+  const octx=out.getContext('2d');
+  octx.drawImage(cv,0,0,cv.width,cropH,0,0,cv.width,cropH);
+
+  const now=new Date();
+  const dateText=`${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
+  const nameText='Plop';
+
+  const iconSize=22*DPR, pad=14*DPR, innerPad=8*DPR, gap=10*DPR;
+  octx.font=`600 ${13*DPR}px -apple-system, "PingFang TC", sans-serif`;
+  const nameW=octx.measureText(nameText).width;
+  octx.font=`${10*DPR}px -apple-system, "PingFang TC", sans-serif`;
+  const dateW=octx.measureText(dateText).width;
+  const textW=Math.max(nameW,dateW);
+
+  const chipW=innerPad+iconSize+gap+textW+innerPad;
+  const chipH=iconSize+innerPad*1.4;
+  const x=out.width-chipW;
+  const y=out.height-pad-chipH;
+
+  octx.save();
+  octx.fillStyle='rgba(20,16,12,0.4)';
+  roundRectPathFlagRight(octx,x,y,chipW,chipH,chipH/2);
+  octx.fill();
+
+  if(appIconImg.complete && appIconImg.naturalWidth){
+    octx.save();
+    roundRectPath(octx,x+innerPad,y+(chipH-iconSize)/2,iconSize,iconSize,5*DPR);
+    octx.clip();
+    octx.drawImage(appIconImg,x+innerPad,y+(chipH-iconSize)/2,iconSize,iconSize);
+    octx.restore();
+  }
+
+  const textX=x+innerPad+iconSize+gap;
+  octx.textBaseline='top';
+  octx.fillStyle='#fdf8ec';
+  octx.font=`600 ${13*DPR}px -apple-system, "PingFang TC", sans-serif`;
+  octx.fillText(nameText,textX,y+innerPad*0.55);
+  octx.globalAlpha=0.82;
+  octx.font=`${10*DPR}px -apple-system, "PingFang TC", sans-serif`;
+  octx.fillText(dateText,textX,y+innerPad*0.55+15*DPR);
+  octx.restore();
+
+  out.toBlob(blob=>{
+    if(!blob){ showToast('存圖失敗'); return; }
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=`plop_${dateText.replace(/\./g,'')}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    showToast('已存圖');
+  });
+}
+document.getElementById('saveBtn').addEventListener('click',saveImage);
+
+const infoOverlay=document.getElementById('infoOverlay');
+document.getElementById('infoBtn').addEventListener('click',()=>{
+  infoOverlay.classList.add('open');
+});
+document.getElementById('infoCloseBtn').addEventListener('click',()=>{
+  infoOverlay.classList.remove('open');
+});
+infoOverlay.addEventListener('click',(e)=>{
+  if(e.target===infoOverlay) infoOverlay.classList.remove('open');
+});
 
 function changeSkin(step){
   skinKey=SKIN_ORDER[(SKIN_ORDER.indexOf(skinKey)+step+SKIN_ORDER.length)%SKIN_ORDER.length];
@@ -1670,7 +2013,7 @@ function changeSkin(step){
   const currentSkin = SKINS[skinKey];
   blend=!!(currentSkin.blend && currentSkin.blend.mode==='multiply');
   
-  if (skinKey === 'tech') {
+  if (skinKey === 'tech' || skinKey === 'neon') {
     if (bgKey !== 'darkTech') bgAutoDark = true;
     bgKey = 'darkTech';
   } else if (bgKey === 'darkTech' && bgAutoDark) {
@@ -1678,18 +2021,20 @@ function changeSkin(step){
     bgAutoDark = false;
   }
 
-  if(blend || currentSkin.isVoid || currentSkin.isGlassineEmboss){
+  if(blend || currentSkin.isVoid || currentSkin.isGlassineEmboss || currentSkin.isNeonOutline){
     for(const p of pieces) p.gid=gidSeq++;
   }
   updateBtns(); saveState(); dirty=true;
 }
 skinPrevBtn.addEventListener('click',()=>changeSkin(-1));
 skinNextBtn.addEventListener('click',()=>changeSkin(1));
-bgBtn.addEventListener('click',()=>{
-  bgKey=BG_ORDER[(BG_ORDER.indexOf(bgKey)+1)%BG_ORDER.length];
+function changeBg(step){
+  bgKey=BG_ORDER[(BG_ORDER.indexOf(bgKey)+step+BG_ORDER.length)%BG_ORDER.length];
   bgAutoDark=false;
   updateBtns(); saveState(); dirty=true;
-});
+}
+document.getElementById('bgPrevBtn').addEventListener('click',()=>changeBg(-1));
+document.getElementById('bgNextBtn').addEventListener('click',()=>changeBg(1));
 
 function saveState(){
   try{
@@ -1740,6 +2085,7 @@ function resize(){
   cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(DPR,0,0,DPR,0,0);
   delete bgPatterns.terrazzo;
+  delete bgPatterns.terrazzoDark;
   layoutWells();
   const gids=[...new Set(pieces.map(p=>p.gid))];
   for(const g of gids) clampGroup(groupPieces(g));
